@@ -1,7 +1,7 @@
 import "../polyfills";
 import * as bip39 from "bip39";
 import { BIP32Factory } from "bip32";
-import ecc from "tiny-secp256k1";
+import * as ecc from "@bitcoinerlab/secp256k1";
 import TronWeb from "tronweb";
 
 const bip32 = BIP32Factory(ecc);
