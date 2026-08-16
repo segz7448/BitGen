@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "BITGEN",
+    "slug": "bitgen",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0B0B0F"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.segz7448.bitgen",
+      "permissions": ["CAMERA", "POST_NOTIFICATIONS"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0B0B0F"
+      }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "BITGEN needs camera access to scan Bitcoin addresses and QR codes."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "BITGEN uses biometrics to unlock your wallet."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#F7931A",
+          "sounds": []
+        }
+      ]
+    ]
+  }
+}
