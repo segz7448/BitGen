@@ -40,14 +40,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name-: Expo prebuild (Android)
+      - name: Expo prebuild (Android)
         run: npx expo prebuild --platform android --clean
         env:
           EXPO_PUBLIC_TRONGRID_API_KEY: ${{ secrets.EXPO_PUBLIC_TRONGRID_API_KEY }}
           EXPO_PUBLIC_CHANGENOW_API_KEY: ${{ secrets.EXPO_PUBLIC_CHANGENOW_API_KEY }}
           EXPO_PUBLIC_ONEINCH_API_KEY: ${{ secrets.EXPO_PUBLIC_ONEINCH_API_KEY }}
 
-       - name: Make gradlew executable
+      - name: Make gradlew executable
         run: chmod +x android/gradlew
 
       - name: Decode release keystore
