@@ -1,6 +1,30 @@
 const CACHE_MS = 15_000;
 let cache = { at: 0, prices: null };
 
+// Optional: CoinGecko's fully keyless public endpoint still works, but is
+// now heavily rate-limited — enough that back-to-back Home + Chart screen
+// loads can trip it. A free Demo key (coingecko.com/en/developers/dashboard)
+// raises that ceiling a lot and costs nothing. Entirely optional: every
+// call below still works keyless, just with a lower rate-limit budget.
+// EXPO_PUBLIC_COINGECKO_API_KEY=your-demo-key-here
+const COINGECKO_API_KEY = process.env.EXPO_PUBLIC_COINGECKO_API_KEY || "";
+const COINGECKO_HEADERS = COINGECKO_API_KEY ? { "x-cg-demo-api-key": COINGECKO_API_KEY } : {};
+
+// Plain fetch() has no timeout — on a bad connection it can hang far
+// longer than a user will wait, leaving the UI stuck on a spinner instead
+// of surfacing "no data" with a retry. Cap every CoinGecko call.
+const FETCH_TIMEOUT_MS = 10_000;
+
+async function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { headers: COINGECKO_HEADERS, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * BTC price in a few currencies via CoinGecko's public, keyless endpoint.
  * Cached briefly so multiple screens polling in parallel (Home, Chart)
@@ -11,9 +35,10 @@ export async function fetchBtcPrices() {
     return cache.prices;
   }
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,ngn,eur,gbp"
     );
+    if (!res.ok) throw new Error(`simple/price ${res.status}`);
     const data = await res.json();
     cache = { at: Date.now(), prices: data.bitcoin };
     return data.bitcoin;
@@ -73,7 +98,7 @@ export async function fetchBtcOhlc(days = 1, currency = "usd") {
     return cached.candles;
   }
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=${currency}&days=${days}`
     );
     if (!res.ok) throw new Error(`ohlc ${res.status}`);
@@ -100,7 +125,7 @@ export async function fetchBtcMarketChart(days = 1, currency = "usd") {
     return cached;
   }
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=${currency}&days=${days}`
     );
     if (!res.ok) throw new Error(`market_chart ${res.status}`);
