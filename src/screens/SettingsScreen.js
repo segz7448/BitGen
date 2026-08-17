@@ -7,6 +7,7 @@ import { resetDatabase } from "../db/database";
 import { getAccountXpub } from "../wallet/hdWallet";
 import { isWatchOnly } from "../wallet/walletMode";
 import { hasPin, clearPin } from "../wallet/appLock";
+import { requestLock } from "../wallet/lockBus";
 
 export default function SettingsScreen({ navigation }) {
   const [revealedSeed, setRevealedSeed] = useState(null);
@@ -84,6 +85,20 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
+  const logout = () => {
+    if (!pinEnabled) {
+      Alert.alert(
+        "Set a PIN first",
+        "Logout locks the app behind your PIN. Turn on App lock above, then Logout will be available.",
+      );
+      return;
+    }
+    Alert.alert("Log out?", "You'll need your PIN or biometrics to open BITGEN again.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", onPress: () => requestLock() },
+    ]);
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing(3) }}>
       <Text style={styles.sectionTitle}>Security</Text>
@@ -91,6 +106,9 @@ export default function SettingsScreen({ navigation }) {
         <Text style={styles.rowText}>App lock (PIN)</Text>
         <Switch value={pinEnabled} onValueChange={togglePinLock} trackColor={{ false: colors.border, true: colors.orange }} thumbColor="#FFFFFF" />
       </View>
+      <TouchableOpacity style={[styles.row, !pinEnabled && styles.rowDisabled]} onPress={logout}>
+        <Text style={[styles.rowText, !pinEnabled && styles.rowTextDisabled]}>Log out</Text>
+      </TouchableOpacity>
 
       {!watchOnly && (
         <>
@@ -147,6 +165,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(2), marginBottom: spacing(1),
   },
   rowText: { color: colors.text, fontSize: 14 },
+  rowDisabled: { opacity: 0.5 },
+  rowTextDisabled: { color: colors.subtext },
   seedBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.orange, borderRadius: 12, padding: spacing(2), marginTop: spacing(1), marginBottom: spacing(1) },
   seedText: { color: colors.text, fontSize: 14, lineHeight: 22 },
   copyLink: { color: colors.orange, marginTop: spacing(1), fontWeight: "600" },
