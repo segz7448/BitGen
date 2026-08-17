@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 import { loadMnemonic, deleteMnemonic, loadPassphrase } from "../wallet/secureSeed";
 import { resetDatabase } from "../db/database";
 import { getAccountXpub } from "../wallet/hdWallet";
@@ -9,7 +9,15 @@ import { isWatchOnly } from "../wallet/walletMode";
 import { hasPin, clearPin } from "../wallet/appLock";
 import { requestLock } from "../wallet/lockBus";
 
+const APPEARANCE_OPTIONS = [
+  { key: "system", label: "System" },
+  { key: "light", label: "Light" },
+  { key: "dark", label: "Dark" },
+];
+
 export default function SettingsScreen({ navigation }) {
+  const { colors, pref, setMode } = useTheme();
+  const styles = makeStyles(colors);
   const [revealedSeed, setRevealedSeed] = useState(null);
   const [watchOnly, setWatchOnly] = useState(false);
   const [pinEnabled, setPinEnabled] = useState(false);
@@ -101,6 +109,22 @@ export default function SettingsScreen({ navigation }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing(3) }}>
+      <Text style={styles.sectionTitle}>Appearance</Text>
+      <View style={styles.segmentRow}>
+        {APPEARANCE_OPTIONS.map((opt) => {
+          const active = pref === opt.key;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.segment, active && styles.segmentActive]}
+              onPress={() => setMode(opt.key)}
+            >
+              <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{opt.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       <Text style={styles.sectionTitle}>Security</Text>
       <View style={styles.row}>
         <Text style={styles.rowText}>App lock (PIN)</Text>
@@ -157,22 +181,32 @@ export default function SettingsScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  sectionTitle: { color: colors.subtext, fontSize: 12, fontWeight: "700", marginTop: spacing(3), marginBottom: spacing(1), textTransform: "uppercase" },
-  row: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(2), marginBottom: spacing(1),
-  },
-  rowText: { color: colors.text, fontSize: 14 },
-  rowDisabled: { opacity: 0.5 },
-  rowTextDisabled: { color: colors.subtext },
-  seedBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.orange, borderRadius: 12, padding: spacing(2), marginTop: spacing(1), marginBottom: spacing(1) },
-  seedText: { color: colors.text, fontSize: 14, lineHeight: 22 },
-  copyLink: { color: colors.orange, marginTop: spacing(1), fontWeight: "600" },
-  hideLink: { color: colors.subtext, marginTop: spacing(1) },
-  infoBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(2) },
-  infoText: { color: colors.subtext, fontSize: 12, lineHeight: 18 },
-  dangerRow: { borderColor: colors.red },
-  dangerText: { color: colors.red, fontSize: 14, fontWeight: "600" },
-});
+function makeStyles(colors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    sectionTitle: { color: colors.subtext, fontSize: 12, fontWeight: "700", marginTop: spacing(3), marginBottom: spacing(1), textTransform: "uppercase" },
+    segmentRow: {
+      flexDirection: "row", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+      borderRadius: 12, padding: 4, marginBottom: spacing(1),
+    },
+    segment: { flex: 1, paddingVertical: spacing(1.2), borderRadius: 9, alignItems: "center" },
+    segmentActive: { backgroundColor: colors.orange },
+    segmentText: { color: colors.subtext, fontSize: 13, fontWeight: "600" },
+    segmentTextActive: { color: "#0B0B0F" },
+    row: {
+      flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+      backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(2), marginBottom: spacing(1),
+    },
+    rowText: { color: colors.text, fontSize: 14 },
+    rowDisabled: { opacity: 0.5 },
+    rowTextDisabled: { color: colors.subtext },
+    seedBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.orange, borderRadius: 12, padding: spacing(2), marginTop: spacing(1), marginBottom: spacing(1) },
+    seedText: { color: colors.text, fontSize: 14, lineHeight: 22 },
+    copyLink: { color: colors.orange, marginTop: spacing(1), fontWeight: "600" },
+    hideLink: { color: colors.subtext, marginTop: spacing(1) },
+    infoBox: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(2) },
+    infoText: { color: colors.subtext, fontSize: 12, lineHeight: 18 },
+    dangerRow: { borderColor: colors.red },
+    dangerText: { color: colors.red, fontSize: 14, fontWeight: "600" },
+  });
+}

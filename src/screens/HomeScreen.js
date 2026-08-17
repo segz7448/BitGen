@@ -1,20 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, RefreshControl, ScrollView, ActivityIndicator } from "react-native";
-import { useIsFocused } from "@react-navigation/native";
-import { colors, spacing } from "../theme";
+import { useIsFocused, useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { spacing, useTheme } from "../theme";
 import { getTotalBalance, getCurrentAddress, getCurrentAddress as getAssetAddress } from "../db/addressRepo";
 import { syncWallet } from "../wallet/sync";
 import { satsToFiat, formatFiat } from "../network/priceFeed";
 import { startPriceStream, stopPriceStream, useTicker, useConnectionStatus } from "../store/priceStore";
 import { isWatchOnly } from "../wallet/walletMode";
-import { ASSET_IDS, listAssets, getAsset } from "../wallet/assets";
+import { ASSET_IDS, getAsset } from "../wallet/assets";
 import { fromBaseUnits } from "../wallet/units";
 import { getErc20Balance } from "../network/evmClient";
 import { getTrc20Balance } from "../network/tronClient";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
+import { unreadNotificationCount } from "../db/notificationRepo";
 import LiveIndicator from "../components/LiveIndicator";
 import CurrencySelector from "../components/CurrencySelector";
+import { GlassCard, GlassIcon } from "../components/Glass";
 
 const AUTO_REFRESH_MS = 15_000;
 
@@ -51,36 +54,32 @@ async function loadOtherBalances() {
 }
 
 export default function HomeScreen({ navigation }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [balance, setBalance] = useState(0);
   const [currentAddress, setCurrentAddress] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [syncing, setSyncing] = useState(true); // only true until the first load completes
+  const [syncing, setSyncing] = useState(true);
   const [error, setError] = useState(null);
   const [watchOnly, setWatchOnly] = useState(false);
   const [otherBalances, setOtherBalances] = useState([]);
+  const [unread, setUnread] = useState(0);
   const isFocused = useIsFocused();
 
-  // Live BTC/USD ticker and socket status — each is its own store slice,
-  // so a price tick re-renders only the balance card's fiat line below,
-  // not this whole screen (balance, addresses, other-asset rows, etc.
-  // are untouched by a price update).
   const ticker = useTicker();
   const connectionStatus = useConnectionStatus();
   const { currency, setCurrency } = useDisplayCurrency();
-  const fiat = useMemo(
-    () => satsToFiat(balance, ticker[currency]),
-    [balance, ticker, currency]
-  );
+  const fiat = useMemo(() => satsToFiat(balance, ticker[currency]), [balance, ticker, currency]);
 
-  // Wallet sync (on-chain balance) and the live price feed are independent
-  // real-time concerns updating on their own schedules — the socket
-  // pushes price ticks continuously, wallet sync still runs on its own
-  // timer since it requires a chain-indexer round trip, not a stream.
   useEffect(() => {
     if (!isFocused) return;
     startPriceStream();
     return () => stopPriceStream();
   }, [isFocused]);
+
+  useFocusEffect(useCallback(() => {
+    unreadNotificationCount().then(setUnread).catch(() => {});
+  }, []));
 
   const load = useCallback(async (withNetwork = true) => {
     try {
@@ -96,19 +95,8 @@ export default function HomeScreen({ navigation }) {
     }
   }, []);
 
-  // Auto-syncs the on-chain wallet balance on a timer — no manual pull
-  // needed. The spinner only shows for the very first load; every tick
-  // after that (and every return from background) updates quietly. The
-  // BTC price itself is not part of this cycle — it streams in live via
-  // the WebSocket feed above, independent of this interval.
   useAutoRefresh(
-    useCallback(
-      async () => {
-        await load(true);
-        setSyncing(false);
-      },
-      [load]
-    ),
+    useCallback(async () => { await load(true); setSyncing(false); }, [load]),
     AUTO_REFRESH_MS,
     isFocused
   );
@@ -125,13 +113,27 @@ export default function HomeScreen({ navigation }) {
       contentContainerStyle={{ padding: spacing(3) }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.orange} />}
     >
+      <View style={styles.topBar}>
+        <Text style={styles.appName}>BITGEN</Text>
+        <TouchableOpacity onPress={() => navigation.navigate("Notifications")}>
+          <GlassIcon size={38}>
+            <Ionicons name="notifications-outline" size={19} color={colors.text} />
+            {unread > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unread > 9 ? "9+" : unread}</Text>
+              </View>
+            )}
+          </GlassIcon>
+        </TouchableOpacity>
+      </View>
+
       {watchOnly && (
         <View style={styles.watchOnlyBanner}>
           <Text style={styles.watchOnlyBannerText}>Watch-only wallet — sending is disabled</Text>
         </View>
       )}
 
-      <View style={styles.balanceCard}>
+      <GlassCard style={styles.balanceCard}>
         <View style={styles.balanceLabelRow}>
           <Text style={styles.balanceLabel}>Total Balance</Text>
           <LiveIndicator status={connectionStatus} />
@@ -143,54 +145,53 @@ export default function HomeScreen({ navigation }) {
         ) : (
           <>
             <Text style={styles.balanceValue}>{formatSats(balance)} BTC</Text>
-            {fiat != null && (
-              <TouchableOpacity onPress={() => navigation.navigate("Chart")}>
-                <Text style={styles.fiatValue}>{formatFiat(fiat, currency)} · Chart →</Text>
-              </TouchableOpacity>
-            )}
+            {fiat != null && <Text style={styles.fiatValue}>{formatFiat(fiat, currency)}</Text>}
           </>
         )}
         {error && <Text style={styles.errorText}>{error}</Text>}
         {currentAddress && (
-          <Text style={styles.addressPreview} numberOfLines={1}>
-            {currentAddress.address}
-          </Text>
+          <Text style={styles.addressPreview} numberOfLines={1}>{currentAddress.address}</Text>
         )}
-      </View>
+      </GlassCard>
+
+      <TouchableOpacity onPress={() => navigation.navigate("Chart")}>
+        <GlassCard style={styles.priceTile}>
+          <View>
+            <Text style={styles.priceTileLabel}>BTC / {currency.toUpperCase()}</Text>
+            <Text style={styles.priceTileValue}>
+              {ticker[currency] != null ? formatFiat(ticker[currency], currency) : "—"}
+            </Text>
+          </View>
+          <View style={styles.priceTileChartHint}>
+            <Ionicons name="stats-chart" size={16} color={colors.orange} />
+            <Text style={styles.priceTileChartText}>View chart</Text>
+          </View>
+        </GlassCard>
+      </TouchableOpacity>
 
       <View style={styles.actionsRow}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate("AssetPicker", { mode: "deposit" })}
-        >
-          <Text style={styles.actionIcon}>↓</Text>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate("AssetPicker", { mode: "deposit" })}>
+          <GlassIcon><Ionicons name="add" size={22} color={colors.orange} /></GlassIcon>
           <Text style={styles.actionLabel}>Add funds</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionButton, watchOnly && styles.actionButtonDisabled]}
           onPress={() => !watchOnly && navigation.navigate("AssetPicker", { mode: "withdraw" })}
         >
-          <Text style={styles.actionIcon}>↑</Text>
+          <GlassIcon><Ionicons name="arrow-up" size={20} color={colors.text} /></GlassIcon>
           <Text style={styles.actionLabel}>Withdraw</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate("TransferAccounts")}>
-          <Text style={styles.actionIcon}>⇄</Text>
+          <GlassIcon><Ionicons name="swap-horizontal" size={20} color={colors.text} /></GlassIcon>
           <Text style={styles.actionLabel}>Transfer</Text>
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate("Addresses")}>
-          <Text style={styles.actionIcon}>⋯</Text>
-          <Text style={styles.actionLabel}>Addresses</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate("Scan")}>
-          <Text style={styles.actionIcon}>▦</Text>
-          <Text style={styles.actionLabel}>Scan QR</Text>
+          <GlassIcon><Ionicons name="qr-code-outline" size={19} color={colors.text} /></GlassIcon>
+          <Text style={styles.actionLabel}>Scan</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.otherAssetsCard}>
+      <GlassCard style={styles.otherAssetsCard}>
         <Text style={styles.otherAssetsTitle}>USDT</Text>
         {otherBalances.map((b) => {
           const asset = getAsset(b.assetId);
@@ -203,67 +204,66 @@ export default function HomeScreen({ navigation }) {
             </View>
           );
         })}
-      </View>
+      </GlassCard>
 
-      <TouchableOpacity style={styles.historyRow} onPress={() => navigation.navigate("Wallet")}>
-        <Text style={styles.historyRowText}>Funding & Trading Accounts</Text>
-        <Text style={styles.historyRowArrow}>→</Text>
+      <TouchableOpacity onPress={() => navigation.navigate("Wallet")}>
+        <GlassCard style={styles.historyRow}>
+          <Text style={styles.historyRowText}>Funding & Trading Accounts</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.subtext} />
+        </GlassCard>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.historyRow} onPress={() => navigation.navigate("Chart")}>
-        <Text style={styles.historyRowText}>BTC Price Chart</Text>
-        <Text style={styles.historyRowArrow}>→</Text>
+      <TouchableOpacity onPress={() => navigation.navigate("Addresses")}>
+        <GlassCard style={styles.historyRow}>
+          <Text style={styles.historyRowText}>Your Addresses</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.subtext} />
+        </GlassCard>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.historyRow} onPress={() => navigation.navigate("History")}>
-        <Text style={styles.historyRowText}>Transaction History</Text>
-        <Text style={styles.historyRowArrow}>→</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.settingsLink} onPress={() => navigation.navigate("Settings")}>
-        <Text style={styles.settingsLinkText}>Settings</Text>
+      <TouchableOpacity onPress={() => navigation.navigate("History")}>
+        <GlassCard style={styles.historyRow}>
+          <Text style={styles.historyRowText}>Transaction History</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.subtext} />
+        </GlassCard>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  watchOnlyBanner: { backgroundColor: "#1F1F2A", borderRadius: 10, padding: spacing(1.2), marginBottom: spacing(2) },
-  watchOnlyBannerText: { color: colors.subtext, fontSize: 12, textAlign: "center" },
-  balanceCard: {
-    backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.border,
-    padding: spacing(3), alignItems: "center", marginBottom: spacing(3),
-  },
-  balanceLabel: { color: colors.subtext, fontSize: 13 },
-  balanceLabelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  balanceValue: { color: colors.text, fontSize: 30, fontWeight: "700", marginVertical: spacing(1) },
-  fiatValue: { color: colors.subtext, fontSize: 14, marginBottom: spacing(1) },
-  errorText: { color: colors.red, fontSize: 12, marginBottom: spacing(1), textAlign: "center" },
-  addressPreview: { color: colors.subtext, fontSize: 11, marginTop: spacing(1) },
-  actionsRow: { flexDirection: "row", gap: spacing(1.5) },
-  actionButton: {
-    flex: 1, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-    paddingVertical: spacing(2.5), alignItems: "center",
-  },
-  actionButtonDisabled: { opacity: 0.4 },
-  actionIcon: { color: colors.orange, fontSize: 22, fontWeight: "700" },
-  actionLabel: { color: colors.text, marginTop: spacing(0.5), fontSize: 13, fontWeight: "600" },
-  otherAssetsCard: {
-    backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-    padding: spacing(2), marginTop: spacing(1.5),
-  },
-  otherAssetsTitle: { color: colors.subtext, fontSize: 12, fontWeight: "700", marginBottom: spacing(1) },
-  otherAssetRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: spacing(0.75) },
-  otherAssetChain: { color: colors.text, fontSize: 13 },
-  otherAssetValue: { color: colors.subtext, fontSize: 13 },
-  historyRow: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-    padding: spacing(2), marginTop: spacing(1.5),
-  },
-  historyRowText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  historyRowArrow: { color: colors.subtext, fontSize: 14 },
-  settingsLink: { alignItems: "center", marginTop: spacing(4) },
-  settingsLinkText: { color: colors.subtext, fontSize: 13 },
-});
+function makeStyles(colors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing(2) },
+    appName: { color: colors.text, fontSize: 20, fontWeight: "800", letterSpacing: 0.5 },
+    badge: {
+      position: "absolute", top: -3, right: -3, backgroundColor: colors.red, borderRadius: 8,
+      minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 3,
+    },
+    badgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "700" },
+    watchOnlyBanner: { backgroundColor: "#1F1F2A", borderRadius: 10, padding: spacing(1.2), marginBottom: spacing(2) },
+    watchOnlyBannerText: { color: colors.subtext, fontSize: 12, textAlign: "center" },
+    balanceCard: { padding: spacing(3), alignItems: "center", marginBottom: spacing(2) },
+    balanceLabel: { color: colors.subtext, fontSize: 13 },
+    balanceLabelRow: { flexDirection: "row", alignItems: "center", gap: 8, width: "100%" },
+    balanceValue: { color: colors.text, fontSize: 30, fontWeight: "700", marginVertical: spacing(1) },
+    fiatValue: { color: colors.subtext, fontSize: 14, marginBottom: spacing(1) },
+    errorText: { color: colors.red, fontSize: 12, marginBottom: spacing(1), textAlign: "center" },
+    addressPreview: { color: colors.subtext, fontSize: 11, marginTop: spacing(1) },
+    priceTile: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: spacing(2), marginBottom: spacing(2) },
+    priceTileLabel: { color: colors.subtext, fontSize: 11, fontWeight: "600" },
+    priceTileValue: { color: colors.text, fontSize: 18, fontWeight: "700", marginTop: 2 },
+    priceTileChartHint: { flexDirection: "row", alignItems: "center", gap: 4 },
+    priceTileChartText: { color: colors.orange, fontSize: 12, fontWeight: "600" },
+    actionsRow: { flexDirection: "row", justifyContent: "space-around", marginBottom: spacing(2) },
+    actionButton: { alignItems: "center" },
+    actionButtonDisabled: { opacity: 0.4 },
+    actionLabel: { color: colors.text, marginTop: spacing(0.75), fontSize: 12, fontWeight: "600" },
+    otherAssetsCard: { padding: spacing(2), marginBottom: spacing(1.5) },
+    otherAssetsTitle: { color: colors.subtext, fontSize: 12, fontWeight: "700", marginBottom: spacing(1) },
+    otherAssetRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: spacing(0.75) },
+    otherAssetChain: { color: colors.text, fontSize: 13 },
+    otherAssetValue: { color: colors.subtext, fontSize: 13 },
+    historyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: spacing(2), marginBottom: spacing(1.25) },
+    historyRowText: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  });
+}

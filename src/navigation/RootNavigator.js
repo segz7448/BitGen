@@ -30,6 +30,7 @@ import AssetPickerScreen from "../screens/AssetPickerScreen";
 import DepositScreen from "../screens/DepositScreen";
 import WithdrawScreen from "../screens/WithdrawScreen";
 import TransferScreen from "../screens/TransferScreen";
+import NotificationsScreen from "../screens/NotificationsScreen";
 import { useTheme } from "../theme";
 
 const Stack = createNativeStackNavigator();
@@ -135,6 +136,7 @@ export default function RootNavigator() {
       <Stack.Screen name="TransferAccounts" component={TransferScreen} options={{ title: "Transfer" }} />
       <Stack.Screen name="Addresses" component={AddressesScreen} options={{ title: "Your Addresses" }} />
       <Stack.Screen name="History" component={TransactionHistoryScreen} options={{ title: "Transaction History" }} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Notifications" }} />
       <Stack.Screen name="BumpFee" component={BumpFeeScreen} options={{ title: "Bump Fee" }} />
       <Stack.Screen name="Cpfp" component={CpfpScreen} options={{ title: "Speed Up Payment" }} />
       <Stack.Screen name="ExportBackup" component={ExportBackupScreen} options={{ title: "Export Backup" }} />

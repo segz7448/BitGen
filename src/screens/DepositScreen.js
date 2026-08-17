@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert, ActivityIndi
 import { useFocusEffect } from "@react-navigation/native";
 import QRCode from "react-native-qrcode-svg";
 import * as Clipboard from "expo-clipboard";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 import { ASSET_IDS, getAsset } from "../wallet/assets";
 import {
   getCurrentAddress,
@@ -15,6 +15,13 @@ import {
 import { loadMnemonic, loadPassphrase } from "../wallet/secureSeed";
 import { isWatchOnly, getStoredXpub } from "../wallet/walletMode";
 import { getOrCreateAddress } from "../wallet/multiAssetAddress";
+import { GlassCard } from "../components/Glass";
+
+const NETWORK_LABEL = {
+  USDT_TRC20: "TRC20 (Tron)",
+  USDT_ERC20: "ERC20 (Ethereum)",
+  USDT_BEP20: "BEP20 (BNB Smart Chain)",
+};
 
 /**
  * BTC: full address-rotation UI, same behavior as the wallet's original
@@ -23,6 +30,8 @@ import { getOrCreateAddress } from "../wallet/multiAssetAddress";
  * multiAssetAddress.js) — no rotation UI, just QR + copy.
  */
 export default function DepositScreen({ route }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const assetId = route.params?.assetId || ASSET_IDS.BTC;
   const asset = getAsset(assetId);
   const isBtc = assetId === ASSET_IDS.BTC;
@@ -40,7 +49,6 @@ export default function DepositScreen({ route }) {
       setLoading(false);
       return;
     }
-    // USDT variants: derive-and-store once, then just read it back.
     try {
       const watchOnly = await isWatchOnly();
       if (watchOnly) {
@@ -111,15 +119,19 @@ export default function DepositScreen({ route }) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.assetLabel}>Deposit {asset.symbol} · {asset.displayName}</Text>
+      <Text style={styles.assetLabel}>
+        Deposit {asset.symbol}{!isBtc ? ` · ${NETWORK_LABEL[assetId] || asset.displayName}` : ""}
+      </Text>
 
       <View style={styles.qrCard}>
         <QRCode value={isBtc ? `bitcoin:${current.address}` : current.address} size={220} backgroundColor="#FFFFFF" />
       </View>
 
       <TouchableOpacity onPress={copyAddress}>
-        <Text style={styles.address}>{current.address}</Text>
-        <Text style={styles.tapToCopy}>Tap to copy</Text>
+        <GlassCard style={styles.addressCard}>
+          <Text style={styles.address}>{current.address}</Text>
+          <Text style={styles.tapToCopy}>Tap to copy</Text>
+        </GlassCard>
       </TouchableOpacity>
 
       {isBtc ? (
@@ -141,17 +153,16 @@ export default function DepositScreen({ route }) {
               data={activeAddrs}
               keyExtractor={(item) => item.address}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.addrRow, item.address === current.address && styles.addrRowActive]}
-                  onPress={() => switchTo(item.address)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.addrText} numberOfLines={1}>{item.address}</Text>
-                    <Text style={styles.addrMeta}>
-                      {item.label || `Address #${item.derivation_index}`} · {item.balance_sats} sats
-                    </Text>
-                  </View>
-                  {item.address === current.address && <Text style={styles.currentTag}>CURRENT</Text>}
+                <TouchableOpacity onPress={() => switchTo(item.address)} style={{ width: "100%" }}>
+                  <GlassCard style={[styles.addrRow, item.address === current.address && styles.addrRowActive]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.addrText} numberOfLines={1}>{item.address}</Text>
+                      <Text style={styles.addrMeta}>
+                        {item.label || `Address #${item.derivation_index}`} · {item.balance_sats} sats
+                      </Text>
+                    </View>
+                    {item.address === current.address && <Text style={styles.currentTag}>CURRENT</Text>}
+                  </GlassCard>
                 </TouchableOpacity>
               )}
             />
@@ -164,33 +175,35 @@ export default function DepositScreen({ route }) {
         </>
       ) : (
         <Text style={styles.note}>
-          This is your reused {asset.displayName} address — sending {asset.symbol} to it more than once
-          is normal for this network, unlike Bitcoin. Only send {asset.symbol} on the {asset.chain} network
-          to this address.
+          This is your reused {asset.symbol} address on {NETWORK_LABEL[assetId] || asset.chain} — sending
+          more than once is normal for this network, unlike Bitcoin. Only send {asset.symbol} on this
+          exact network to this address, or your funds may be lost.
         </Text>
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg, padding: spacing(3), alignItems: "center" },
-  assetLabel: { color: colors.text, fontSize: 14, fontWeight: "700", marginBottom: spacing(2) },
-  qrCard: { backgroundColor: "#FFFFFF", padding: spacing(2), borderRadius: 16, marginTop: spacing(1) },
-  address: { color: colors.text, fontSize: 13, marginTop: spacing(3), textAlign: "center", paddingHorizontal: spacing(2) },
-  tapToCopy: { color: colors.subtext, fontSize: 11, textAlign: "center", marginTop: 4 },
-  buttonRow: { flexDirection: "row", gap: spacing(1.5), marginTop: spacing(3), width: "100%" },
-  secondaryButton: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingVertical: spacing(1.5), alignItems: "center" },
-  secondaryButtonText: { color: colors.text, fontSize: 13, fontWeight: "600" },
-  primaryButton: { flex: 1, backgroundColor: colors.orange, borderRadius: 12, paddingVertical: spacing(1.5), alignItems: "center" },
-  primaryButtonText: { color: "#0B0B0F", fontSize: 13, fontWeight: "700" },
-  addrRow: {
-    flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
-    borderRadius: 10, padding: spacing(1.5), marginBottom: spacing(1), width: "100%",
-  },
-  addrRowActive: { borderColor: colors.orange },
-  addrText: { color: colors.text, fontSize: 12 },
-  addrMeta: { color: colors.subtext, fontSize: 11, marginTop: 2 },
-  currentTag: { color: colors.orange, fontSize: 10, fontWeight: "700", marginLeft: spacing(1) },
-  note: { color: colors.subtext, fontSize: 11, textAlign: "center", marginTop: spacing(3), lineHeight: 16 },
-});
+function makeStyles(colors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg, padding: spacing(3), alignItems: "center" },
+    assetLabel: { color: colors.text, fontSize: 14, fontWeight: "700", marginBottom: spacing(2) },
+    qrCard: { backgroundColor: "#FFFFFF", padding: spacing(2), borderRadius: 16, marginTop: spacing(1) },
+    addressCard: { marginTop: spacing(3), padding: spacing(2), width: "100%" },
+    address: { color: colors.text, fontSize: 13, textAlign: "center" },
+    tapToCopy: { color: colors.subtext, fontSize: 11, textAlign: "center", marginTop: 4 },
+    buttonRow: { flexDirection: "row", gap: spacing(1.5), marginTop: spacing(3), width: "100%" },
+    secondaryButton: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingVertical: spacing(1.5), alignItems: "center" },
+    secondaryButtonText: { color: colors.text, fontSize: 13, fontWeight: "600" },
+    primaryButton: { flex: 1, backgroundColor: colors.orange, borderRadius: 12, paddingVertical: spacing(1.5), alignItems: "center" },
+    primaryButtonText: { color: "#0B0B0F", fontSize: 13, fontWeight: "700" },
+    addrRow: {
+      flexDirection: "row", alignItems: "center", padding: spacing(1.5), marginBottom: spacing(1), width: "100%",
+    },
+    addrRowActive: { borderColor: colors.orange },
+    addrText: { color: colors.text, fontSize: 12 },
+    addrMeta: { color: colors.subtext, fontSize: 11, marginTop: 2 },
+    currentTag: { color: colors.orange, fontSize: 10, fontWeight: "700", marginLeft: spacing(1) },
+    note: { color: colors.subtext, fontSize: 11, textAlign: "center", marginTop: spacing(3), lineHeight: 16 },
+  });
+}

@@ -85,6 +85,17 @@ async function migrate(db) {
       created_at INTEGER NOT NULL
     );
 
+    -- Human-readable log of every notification actually shown, backing
+    -- the in-app Notifications screen (bell icon on Home). Separate from
+    -- notified_events above, which only tracks dedupe keys, not content.
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      body TEXT,
+      created_at INTEGER NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0
+    );
+
     -- Internal ledger split of the wallet's real on-chain/on-network
     -- balance into two "accounts" per asset, mirroring exchange-style
     -- Funding vs Unified Trading accounts:

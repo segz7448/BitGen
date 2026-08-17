@@ -45,4 +45,37 @@ export async function claimNotification(eventKey) {
 export async function pruneOldNotifications() {
   const db = await getDb();
   await db.runAsync(`DELETE FROM notified_events WHERE created_at < ?`, [Date.now() - RETENTION_MS]);
+  await db.runAsync(`DELETE FROM notification_log WHERE created_at < ?`, [Date.now() - RETENTION_MS]);
+}
+
+// ---------------------------------------------------------------------
+// Human-readable notification log — backs the in-app Notifications
+// screen. Separate from the dedupe tracking above.
+// ---------------------------------------------------------------------
+
+export async function logNotification({ title, body }) {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO notification_log (title, body, created_at, read) VALUES (?, ?, ?, 0)`,
+    [title || "", body || "", Date.now()]
+  );
+}
+
+export async function listNotifications(limit = 100) {
+  const db = await getDb();
+  return db.getAllAsync(
+    `SELECT id, title, body, created_at, read FROM notification_log ORDER BY created_at DESC LIMIT ?`,
+    [limit]
+  );
+}
+
+export async function unreadNotificationCount() {
+  const db = await getDb();
+  const row = await db.getFirstAsync(`SELECT COUNT(*) as c FROM notification_log WHERE read = 0`);
+  return row?.c || 0;
+}
+
+export async function markAllNotificationsRead() {
+  const db = await getDb();
+  await db.runAsync(`UPDATE notification_log SET read = 1 WHERE read = 0`);
 }

@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import { claimNotification, pruneOldNotifications } from "../db/notificationRepo";
+import { claimNotification, pruneOldNotifications, logNotification } from "../db/notificationRepo";
 
 /**
  * BITGEN's local (device-only) notification layer. There is no server —
@@ -85,6 +85,7 @@ export async function notifyOnce(eventKey, { title, body, data } = {}) {
   const claimed = await claimNotification(eventKey).catch(() => false);
   if (!claimed) return false;
 
+  logNotification({ title, body }).catch(() => {});
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -108,6 +109,7 @@ export async function notifyOnce(eventKey, { title, body, data } = {}) {
  * its own threshold/throttle logic instead of a one-shot event id.
  */
 export async function notifyNow({ title, body, data } = {}) {
+  logNotification({ title, body }).catch(() => {});
   try {
     await Notifications.scheduleNotificationAsync({
       content: { title, body, data: data || {}, sound: "default" },
