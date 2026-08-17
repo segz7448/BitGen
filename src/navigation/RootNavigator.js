@@ -3,6 +3,7 @@ import { View, ActivityIndicator, AppState } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { hasMnemonic } from "../wallet/secureSeed";
 import { hasPin } from "../wallet/appLock";
+import { onLockRequested } from "../wallet/lockBus";
 import { isWatchOnly } from "../wallet/walletMode";
 import { startRealtimeNotifications } from "../realtime/realtimeManager";
 
@@ -24,7 +25,6 @@ import CpfpScreen from "../screens/CpfpScreen";
 import WatchOnlyImportScreen from "../screens/WatchOnlyImportScreen";
 import ExportBackupScreen from "../screens/ExportBackupScreen";
 import ImportBackupScreen from "../screens/ImportBackupScreen";
-import SwapScreen from "../screens/SwapScreen";
 import ChartScreen from "../screens/ChartScreen";
 import AccountsScreen from "../screens/AccountsScreen";
 import DexTradeScreen from "../screens/DexTradeScreen";
@@ -82,6 +82,11 @@ export default function RootNavigator() {
     return () => sub.remove();
   }, [pinExists]);
 
+  // "Log out" in Settings — this is a non-custodial wallet with no server
+  // session to end, so logging out means locking the app immediately,
+  // same screen the user would hit backgrounding and returning.
+  useEffect(() => onLockRequested(() => { if (pinExists) setLocked(true); }), [pinExists]);
+
   if (initializing) {
     return (
       <View style={{ flex: 1, backgroundColor: "#0B0B0F", alignItems: "center", justifyContent: "center" }}>
@@ -123,7 +128,6 @@ export default function RootNavigator() {
       <Stack.Screen name="Home" component={HomeScreen} options={{ title: "BITGEN", headerBackVisible: false }} />
       <Stack.Screen name="Receive" component={ReceiveScreen} options={{ title: "Receive" }} />
       <Stack.Screen name="Send" component={SendScreen} options={{ title: "Send" }} />
-      <Stack.Screen name="Swap" component={SwapScreen} options={{ title: "Swap" }} />
       <Stack.Screen name="Chart" component={ChartScreen} options={{ title: "BTC Price" }} />
       <Stack.Screen name="Accounts" component={AccountsScreen} options={{ title: "Funding & Trading" }} />
       <Stack.Screen name="DexTrade" component={DexTradeScreen} options={{ title: "DEX Trade" }} />
