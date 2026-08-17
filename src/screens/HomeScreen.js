@@ -180,16 +180,13 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={styles.actionsRow}>
-        <TouchableOpacity
-          style={[styles.actionButton, watchOnly && styles.actionButtonDisabled]}
-          onPress={() => !watchOnly && navigation.navigate("Swap")}
-        >
-          <Text style={styles.actionIcon}>⇅</Text>
-          <Text style={styles.actionLabel}>Swap</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate("Addresses")}>
           <Text style={styles.actionIcon}>⋯</Text>
           <Text style={styles.actionLabel}>Addresses</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate("Scan")}>
+          <Text style={styles.actionIcon}>▦</Text>
+          <Text style={styles.actionLabel}>Scan QR</Text>
         </TouchableOpacity>
       </View>
 
