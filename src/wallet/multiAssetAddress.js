@@ -22,7 +22,7 @@ export async function getOrCreateAddress(assetId, mnemonic, passphrase = "") {
     derived = deriveBtcAddress(mnemonic, 0, 0, passphrase);
   } else if (asset.chain === "tron") {
     derived = deriveTronAddress(mnemonic, 0, 0, passphrase);
-  } else if (asset.chain === "ethereum" || asset.chain === "bsc") {
+  } else if (asset.chain === "ethereum" || asset.chain === "bsc" || asset.chain === "morph") {
     derived = deriveEvmAddress(mnemonic, 0, 0, passphrase);
   } else {
     throw new Error(`No address derivation wired up for ${assetId}`);

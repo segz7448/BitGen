@@ -47,6 +47,31 @@ export async function fetchBtcPrices() {
   }
 }
 
+let ethCache = { at: 0, prices: null };
+
+/**
+ * ETH price in a few currencies — same shape/caching as fetchBtcPrices,
+ * kept as a separate cache since it's a different CoinGecko id/response.
+ * REST-only (no WS stream for ETH, unlike BTC's Binance socket), so the
+ * Market tab shows this without a "Live" badge.
+ */
+export async function fetchEthPrices() {
+  if (ethCache.prices && Date.now() - ethCache.at < CACHE_MS) {
+    return ethCache.prices;
+  }
+  try {
+    const res = await fetchWithTimeout(
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,ngn,eur,gbp"
+    );
+    if (!res.ok) throw new Error(`simple/price ${res.status}`);
+    const data = await res.json();
+    ethCache = { at: Date.now(), prices: data.ethereum };
+    return data.ethereum;
+  } catch (e) {
+    return ethCache.prices || null;
+  }
+}
+
 export function satsToFiat(sats, btcPrice) {
   if (!btcPrice) return null;
   return (sats / 100_000_000) * btcPrice;

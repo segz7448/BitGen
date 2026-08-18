@@ -3,11 +3,10 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 
 import { Ionicons } from "@expo/vector-icons";
 import { spacing, useTheme } from "../theme";
 import { useTicker, useConnectionStatus, startPriceStream, stopPriceStream } from "../store/priceStore";
-import { formatFiat } from "../network/priceFeed";
+import { formatFiat, fetchEthPrices } from "../network/priceFeed";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { GlassCard, GlassIcon } from "../components/Glass";
-
-const CURRENCIES = ["usd", "ngn", "eur", "gbp"];
+import CurrencySelector from "../components/CurrencySelector";
 
 export default function MarketScreen({ navigation }) {
   const { colors } = useTheme();
@@ -21,9 +20,18 @@ export default function MarketScreen({ navigation }) {
     return () => stopPriceStream();
   }, []);
 
+  const [ethPrices, setEthPrices] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetchEthPrices().then((p) => alive && setEthPrices(p));
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
   const price = ticker[currency];
-  const statusLabel = { open: "Live", connecting: "Connecting…", reconnecting: "Reconnecting…", closed: "Offline", idle: "Idle" }[connection] || connection;
-  const statusColor = connection === "open" ? colors.green : colors.subtext;
+  const statusLabel = { open: "Live", connecting: "Connecting…", reconnecting: "Reconnecting…", polling: "Live (backup feed)", closed: "Offline", idle: "Idle" }[connection] || connection;
+  const statusColor = connection === "open" || connection === "polling" ? colors.green : colors.subtext;
 
   // Two-way converter — BTC amount <-> fiat amount, using ticker[currency]
   // (already "price of 1 BTC in that currency", so no extra rate lookup).
@@ -86,6 +94,24 @@ export default function MarketScreen({ navigation }) {
 
       <GlassCard style={styles.coinRow}>
         <GlassIcon size={40}>
+          <Ionicons name="diamond" size={18} color="#627EEA" />
+        </GlassIcon>
+        <View style={{ flex: 1, marginLeft: spacing(1.5) }}>
+          <Text style={styles.coinSymbol}>ETH</Text>
+          <Text style={styles.coinName}>Ethereum</Text>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={styles.coinPrice}>{ethPrices?.[currency] != null ? formatFiat(ethPrices[currency], currency) : "—"}</Text>
+          <Text style={styles.coinSubStatus}>Market price</Text>
+        </View>
+      </GlassCard>
+      <Text style={styles.usdtNote}>
+        Available on Ethereum, Morph, and BEP20 (see Wallet → Add funds to pick a network). No
+        candlestick history for ETH yet — that's coming alongside BTC's.
+      </Text>
+
+      <GlassCard style={styles.coinRow}>
+        <GlassIcon size={40}>
           <Ionicons name="cash" size={20} color={colors.green} />
         </GlassIcon>
         <View style={{ flex: 1, marginLeft: spacing(1.5) }}>
@@ -126,11 +152,7 @@ export default function MarketScreen({ navigation }) {
             placeholderTextColor={colors.subtext}
           />
           <View style={styles.currencyPicker}>
-            {CURRENCIES.map((c) => (
-              <TouchableOpacity key={c} onPress={() => setConvCurrency(c)}>
-                <Text style={[styles.convUnit, convCurrency === c && { color: colors.orange }]}>{c.toUpperCase()}</Text>
-              </TouchableOpacity>
-            ))}
+            <CurrencySelector value={convCurrency} onChange={setConvCurrency} />
           </View>
         </View>
       </GlassCard>
@@ -153,6 +175,7 @@ function makeStyles(colors) {
     statusRow: { flexDirection: "row", alignItems: "center", marginTop: 2 },
     dot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
     statusText: { fontSize: 10, fontWeight: "600" },
+    coinSubStatus: { color: colors.subtext, fontSize: 10, fontWeight: "600", marginTop: 2 },
     usdtNote: { color: colors.subtext, fontSize: 11, lineHeight: 16, marginBottom: spacing(1) },
     convCard: { padding: spacing(2.5) },
     convRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

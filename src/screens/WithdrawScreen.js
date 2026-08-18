@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from "react-native";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 import { ASSET_IDS, getAsset } from "../wallet/assets";
 import SendScreen from "./SendScreen";
 import { loadMnemonic, loadPassphrase } from "../wallet/secureSeed";
 import { isWatchOnly } from "../wallet/walletMode";
 import { sendAsset } from "../wallet/sendDispatch";
-import { getErc20Balance } from "../network/evmClient";
-import { getTrc20Balance } from "../network/tronClient";
+import { getAssetBalanceDisplay } from "../network/multiAssetBalance";
 import { getCurrentAddress } from "../db/addressRepo";
-import { fromBaseUnits } from "../wallet/units";
+
+const GAS_COIN = { bsc: "BNB", ethereum: "ETH", morph: "ETH", tron: "TRX" };
 
 /**
  * BTC keeps the real, existing Send flow untouched (fee tiers, RBF,
- * UTXO selection) — too much working logic there to duplicate. USDT
- * variants (account-model chains) get a simpler on-chain send form
- * using the shared sendAsset dispatcher already proven in SwapScreen.
+ * UTXO selection) — too much working logic there to duplicate. USDT/ETH
+ * variants (account-model chains) get a simpler on-chain send form using
+ * the shared sendAsset dispatcher, which itself branches on native
+ * value-transfer vs ERC20-style contract.transfer() depending on the asset.
  */
 export default function WithdrawScreen({ route, navigation }) {
   const assetId = route.params?.assetId || ASSET_IDS.BTC;
@@ -24,10 +25,12 @@ export default function WithdrawScreen({ route, navigation }) {
     return <SendScreen route={route} navigation={navigation} />;
   }
 
-  return <UsdtWithdrawForm assetId={assetId} navigation={navigation} />;
+  return <AccountModelWithdrawForm assetId={assetId} navigation={navigation} />;
 }
 
-function UsdtWithdrawForm({ assetId, navigation }) {
+function AccountModelWithdrawForm({ assetId, navigation }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const asset = getAsset(assetId);
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
@@ -45,11 +48,7 @@ function UsdtWithdrawForm({ assetId, navigation }) {
           setAvailable(0);
           return;
         }
-        const raw =
-          asset.chain === "tron"
-            ? await getTrc20Balance(addrRow.address, asset.contractAddress)
-            : await getErc20Balance(asset.chain, addrRow.address, asset.contractAddress);
-        setAvailable(fromBaseUnits(raw, asset.decimals));
+        setAvailable(await getAssetBalanceDisplay(assetId, addrRow.address));
       } catch {
         setAvailable(null);
       } finally {
@@ -117,6 +116,8 @@ function UsdtWithdrawForm({ assetId, navigation }) {
     );
   }
 
+  const gasCoin = GAS_COIN[asset.chain] || asset.symbol;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing(3) }}>
       <Text style={styles.assetLabel}>Withdraw {asset.symbol} · {asset.displayName}</Text>
@@ -155,23 +156,27 @@ function UsdtWithdrawForm({ assetId, navigation }) {
         {sending ? <ActivityIndicator color="#0B0B0F" /> : <Text style={styles.sendButtonText}>Review & Withdraw</Text>}
       </TouchableOpacity>
 
-      <Text style={styles.note}>
-        Gas ({asset.chain === "bsc" ? "BNB" : asset.chain === "ethereum" ? "ETH" : "TRX"}) is required
-        in your {asset.displayName} address to cover network fees.
-      </Text>
+      {!asset.isNative && (
+        <Text style={styles.note}>
+          Gas ({gasCoin}) is required in your {asset.displayName} address to cover network fees — separate
+          from the {asset.symbol} you're sending.
+        </Text>
+      )}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  watchOnlyNotice: { color: colors.subtext, fontSize: 14, textAlign: "center", padding: spacing(4), lineHeight: 20 },
-  assetLabel: { color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: spacing(1) },
-  hint: { color: colors.subtext, fontSize: 12, lineHeight: 17, marginBottom: spacing(2) },
-  label: { color: colors.subtext, fontSize: 12, marginBottom: spacing(0.5), marginTop: spacing(2) },
-  available: { color: colors.text, fontSize: 15, fontWeight: "600" },
-  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(1.5), color: colors.text },
-  sendButton: { backgroundColor: colors.orange, borderRadius: 14, paddingVertical: spacing(2), alignItems: "center", marginTop: spacing(4) },
-  sendButtonText: { color: "#0B0B0F", fontWeight: "700", fontSize: 16 },
-  note: { color: colors.subtext, fontSize: 11, textAlign: "center", marginTop: spacing(3), lineHeight: 16 },
-});
+function makeStyles(colors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    watchOnlyNotice: { color: colors.subtext, fontSize: 14, textAlign: "center", padding: spacing(4), lineHeight: 20 },
+    assetLabel: { color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: spacing(1) },
+    hint: { color: colors.subtext, fontSize: 12, lineHeight: 17, marginBottom: spacing(2) },
+    label: { color: colors.subtext, fontSize: 12, marginBottom: spacing(0.5), marginTop: spacing(2) },
+    available: { color: colors.text, fontSize: 15, fontWeight: "600" },
+    input: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(1.5), color: colors.text },
+    sendButton: { backgroundColor: colors.orange, borderRadius: 14, paddingVertical: spacing(2), alignItems: "center", marginTop: spacing(4) },
+    sendButtonText: { color: "#0B0B0F", fontWeight: "700", fontSize: 16 },
+    note: { color: colors.subtext, fontSize: 11, textAlign: "center", marginTop: spacing(3), lineHeight: 16 },
+  });
+}

@@ -1,17 +1,18 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from "react-native";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 import { SUPPORTED_CURRENCIES } from "../wallet/currencyPref";
 
 const LABELS = { usd: "USD", ngn: "NGN", eur: "EUR", gbp: "GBP" };
 
 /**
- * Small pill + dropdown for picking the display currency (USD default).
- * Selection is handed to the parent via onChange, which is expected to
- * persist it through useDisplayCurrency/currencyPref — this component
- * itself holds no storage state, only whether the menu is open.
+ * Small pill + dropdown for picking a currency. Selection is handed to
+ * the parent via onChange — this component holds no storage state
+ * itself, only whether the menu is open.
  */
 export default function CurrencySelector({ value, onChange }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [open, setOpen] = useState(false);
 
   return (
@@ -45,21 +46,23 @@ export default function CurrencySelector({ value, onChange }) {
   );
 }
 
-const styles = StyleSheet.create({
-  pill: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
-    borderRadius: 8, paddingHorizontal: spacing(1.25), paddingVertical: spacing(0.5),
-  },
-  pillText: { color: colors.text, fontSize: 13, fontWeight: "600" },
-  caret: { color: colors.subtext, fontSize: 12 },
-  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  menu: {
-    backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
-    minWidth: 160, paddingVertical: spacing(0.5), overflow: "hidden",
-  },
-  menuItem: { paddingVertical: spacing(1.5), paddingHorizontal: spacing(2) },
-  menuItemActive: { backgroundColor: colors.bg },
-  menuItemText: { color: colors.subtext, fontSize: 14 },
-  menuItemTextActive: { color: colors.orange, fontWeight: "700" },
-});
+function makeStyles(colors) {
+  return StyleSheet.create({
+    pill: {
+      flexDirection: "row", alignItems: "center", gap: 4,
+      backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+      borderRadius: 8, paddingHorizontal: spacing(1.25), paddingVertical: spacing(0.5),
+    },
+    pillText: { color: colors.text, fontSize: 13, fontWeight: "600" },
+    caret: { color: colors.subtext, fontSize: 12 },
+    backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+    menu: {
+      backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      minWidth: 160, paddingVertical: spacing(0.5), overflow: "hidden",
+    },
+    menuItem: { paddingVertical: spacing(1.5), paddingHorizontal: spacing(2) },
+    menuItemActive: { backgroundColor: colors.bg },
+    menuItemText: { color: colors.subtext, fontSize: 14 },
+    menuItemTextActive: { color: colors.orange, fontWeight: "700" },
+  });
+}

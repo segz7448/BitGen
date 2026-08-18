@@ -6,13 +6,15 @@ import { GlassCard } from "../components/Glass";
 import NetworkPickerSheet from "../components/NetworkPickerSheet";
 
 const USDT_VARIANTS = [ASSET_IDS.USDT_TRC20, ASSET_IDS.USDT_ERC20, ASSET_IDS.USDT_BEP20];
+const ETH_VARIANTS = [ASSET_IDS.ETH_ETHEREUM, ASSET_IDS.ETH_MORPH, ASSET_IDS.ETH_BEP20];
 
-// Grouped by symbol first — BTC is its own network, USDT expands into a
-// network picker on tap (matches the reference "tap USDT → choose
-// network" flow instead of listing three separate USDT rows).
+// Grouped by symbol first — BTC is its own network, USDT/ETH expand into
+// a network picker on tap (matches the reference "tap coin → choose
+// network" flow instead of listing every variant as a separate row).
 const GROUPS = [
   { key: "BTC", symbol: "BTC", name: "Bitcoin", single: ASSET_IDS.BTC },
   { key: "USDT", symbol: "USDT", name: "Tether", variants: USDT_VARIANTS },
+  { key: "ETH", symbol: "ETH", name: "Ethereum", variants: ETH_VARIANTS },
 ];
 
 /**

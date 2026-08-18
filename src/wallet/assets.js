@@ -13,6 +13,9 @@ export const ASSET_IDS = {
   USDT_TRC20: "USDT_TRC20",
   USDT_ERC20: "USDT_ERC20",
   USDT_BEP20: "USDT_BEP20",
+  ETH_ETHEREUM: "ETH_ETHEREUM",
+  ETH_MORPH: "ETH_MORPH",
+  ETH_BEP20: "ETH_BEP20",
 };
 
 export const ASSETS = {
@@ -65,6 +68,47 @@ export const ASSETS = {
     contractAddress: "0x55d398326f99059fF775485246999027B3197955", // official USDT BEP20 contract
     // BSC is EVM-compatible and conventionally reuses Ethereum's coin type (60),
     // not its own — same path, different RPC/chain id at broadcast time.
+    derivationPurpose: 44,
+    derivationCoinType: 60,
+    implemented: true,
+  },
+  [ASSET_IDS.ETH_ETHEREUM]: {
+    id: ASSET_IDS.ETH_ETHEREUM,
+    symbol: "ETH",
+    displayName: "Ethereum",
+    chain: "ethereum",
+    decimals: 18,
+    isNative: true, // plain value transfer, not a contract.transfer() call
+    contractAddress: null,
+    derivationPurpose: 44,
+    derivationCoinType: 60,
+    implemented: true,
+  },
+  [ASSET_IDS.ETH_MORPH]: {
+    id: ASSET_IDS.ETH_MORPH,
+    symbol: "ETH",
+    displayName: "Ethereum (Morph)",
+    chain: "morph", // Optimistic zkEVM L2, chain id 2818 — see evmClient.js CHAIN_CONFIG
+    decimals: 18,
+    isNative: true,
+    contractAddress: null,
+    // Morph is EVM-compatible and reuses Ethereum's coin type, same as BSC above.
+    derivationPurpose: 44,
+    derivationCoinType: 60,
+    implemented: true,
+  },
+  [ASSET_IDS.ETH_BEP20]: {
+    id: ASSET_IDS.ETH_BEP20,
+    symbol: "ETH",
+    displayName: "Ethereum (BNB Smart Chain)",
+    chain: "bsc",
+    decimals: 18,
+    isNative: false,
+    // Binance-Peg Ethereum Token — verified against BscScan directly
+    // (bscscan.com/token/0x2170ed0880ac9a755fd29b2688956bd959f933f8)
+    // rather than assumed, since a wrong contract address here would
+    // send funds to a token that isn't actually ETH.
+    contractAddress: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
     derivationPurpose: 44,
     derivationCoinType: 60,
     implemented: true,

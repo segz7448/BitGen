@@ -13,6 +13,9 @@ const NETWORK_META = {
   USDT_TRC20: { label: "TRC20 (Tron)", confirmations: "3", minDeposit: "0.01 USDT" },
   USDT_ERC20: { label: "ERC20 (Ethereum)", confirmations: "12", minDeposit: "0.5 USDT" },
   USDT_BEP20: { label: "BEP20 (BNB Smart Chain)", confirmations: "15", minDeposit: "0.01 USDT" },
+  ETH_ETHEREUM: { label: "Ethereum Mainnet", confirmations: "12", minDeposit: "0.001 ETH" },
+  ETH_MORPH: { label: "Morph", confirmations: "1", minDeposit: "0.001 ETH" },
+  ETH_BEP20: { label: "BEP20 (BNB Smart Chain)", confirmations: "15", minDeposit: "0.001 ETH" },
 };
 
 /**

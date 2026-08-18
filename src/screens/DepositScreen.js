@@ -21,6 +21,9 @@ const NETWORK_LABEL = {
   USDT_TRC20: "TRC20 (Tron)",
   USDT_ERC20: "ERC20 (Ethereum)",
   USDT_BEP20: "BEP20 (BNB Smart Chain)",
+  ETH_ETHEREUM: "Ethereum Mainnet",
+  ETH_MORPH: "Morph",
+  ETH_BEP20: "BEP20 (BNB Smart Chain)",
 };
 
 /**

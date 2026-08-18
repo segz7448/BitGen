@@ -9,9 +9,9 @@ import { satsToFiat, formatFiat } from "../network/priceFeed";
 import { startPriceStream, stopPriceStream, useTicker, useConnectionStatus } from "../store/priceStore";
 import { isWatchOnly } from "../wallet/walletMode";
 import { ASSET_IDS, getAsset } from "../wallet/assets";
-import { fromBaseUnits } from "../wallet/units";
-import { getErc20Balance } from "../network/evmClient";
-import { getTrc20Balance } from "../network/tronClient";
+import { getOrCreateAddress } from "../wallet/multiAssetAddress";
+import { loadMnemonic, loadPassphrase } from "../wallet/secureSeed";
+import { getAssetBalanceDisplay } from "../network/multiAssetBalance";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { unreadNotificationCount } from "../db/notificationRepo";
@@ -25,29 +25,42 @@ function formatSats(sats) {
   return (sats / 100_000_000).toFixed(8);
 }
 
-const OTHER_ASSET_IDS = [ASSET_IDS.USDT_TRC20, ASSET_IDS.USDT_ERC20, ASSET_IDS.USDT_BEP20];
+const USDT_VARIANT_IDS = [ASSET_IDS.USDT_TRC20, ASSET_IDS.USDT_ERC20, ASSET_IDS.USDT_BEP20];
+const ETH_VARIANT_IDS = [ASSET_IDS.ETH_ETHEREUM, ASSET_IDS.ETH_MORPH, ASSET_IDS.ETH_BEP20];
 
 /**
- * Live balance lookup for the USDT variants — unlike BTC, these aren't
- * synced into the local DB by a background job yet, so this fetches
- * directly from each chain's RPC/API on every load. Fine for a personal
- * wallet; worth caching if this gets slow.
+ * Live balance lookup for the account-model assets (USDT/ETH variants) —
+ * unlike BTC, these aren't synced into the local DB by a background job
+ * yet, so this fetches directly from each chain's RPC/API on every load.
+ * Fine for a personal wallet; worth caching if this gets slow.
+ *
+ * For a non-watch-only wallet, this also creates the address the first
+ * time it's missing (getOrCreateAddress no-ops if one already exists) so
+ * a network doesn't sit at "Not set up yet" until the user happens to
+ * open Deposit for that specific one — the mnemonic is only touched once
+ * per call, on whichever load first finds an address actually missing.
  */
-async function loadOtherBalances() {
+async function loadBalancesFor(assetIds, watchOnly) {
+  let mnemonic, passphrase;
   const results = await Promise.all(
-    OTHER_ASSET_IDS.map(async (assetId) => {
-      const asset = getAsset(assetId);
-      const addrRow = await getAssetAddress(assetId);
-      if (!addrRow) return { assetId, display: null };
-      try {
-        const raw =
-          asset.chain === "tron"
-            ? await getTrc20Balance(addrRow.address, asset.contractAddress)
-            : await getErc20Balance(asset.chain, addrRow.address, asset.contractAddress);
-        return { assetId, address: addrRow.address, display: fromBaseUnits(raw, asset.decimals) };
-      } catch {
-        return { assetId, address: addrRow.address, display: null };
+    assetIds.map(async (assetId) => {
+      let addrRow = await getAssetAddress(assetId);
+      if (!addrRow && !watchOnly) {
+        try {
+          if (!mnemonic) {
+            mnemonic = await loadMnemonic();
+            passphrase = await loadPassphrase();
+          }
+          const address = await getOrCreateAddress(assetId, mnemonic, passphrase);
+          addrRow = { address };
+        } catch {
+          // Leave addrRow null — surfaces as "Setting up…" below rather
+          // than crashing the whole balance row for one bad derivation.
+        }
       }
+      if (!addrRow) return { assetId, display: null, address: null };
+      const display = await getAssetBalanceDisplay(assetId, addrRow.address);
+      return { assetId, address: addrRow.address, display };
     })
   );
   return results;
@@ -62,7 +75,8 @@ export default function HomeScreen({ navigation }) {
   const [syncing, setSyncing] = useState(true);
   const [error, setError] = useState(null);
   const [watchOnly, setWatchOnly] = useState(false);
-  const [otherBalances, setOtherBalances] = useState([]);
+  const [usdtBalances, setUsdtBalances] = useState([]);
+  const [ethBalances, setEthBalances] = useState([]);
   const [unread, setUnread] = useState(0);
   const isFocused = useIsFocused();
 
@@ -87,8 +101,10 @@ export default function HomeScreen({ navigation }) {
       const sats = await getTotalBalance();
       setBalance(sats);
       setCurrentAddress(await getCurrentAddress());
-      setWatchOnly(await isWatchOnly());
-      loadOtherBalances().then(setOtherBalances).catch(() => {});
+      const wo = await isWatchOnly();
+      setWatchOnly(wo);
+      loadBalancesFor(USDT_VARIANT_IDS, wo).then(setUsdtBalances).catch(() => {});
+      loadBalancesFor(ETH_VARIANT_IDS, wo).then(setEthBalances).catch(() => {});
       setError(null);
     } catch (e) {
       setError("Couldn't reach the network. Showing last known balance.");
@@ -193,13 +209,40 @@ export default function HomeScreen({ navigation }) {
 
       <GlassCard style={styles.otherAssetsCard}>
         <Text style={styles.otherAssetsTitle}>USDT</Text>
-        {otherBalances.map((b) => {
+        {usdtBalances.map((b) => {
           const asset = getAsset(b.assetId);
           return (
             <View key={b.assetId} style={styles.otherAssetRow}>
               <Text style={styles.otherAssetChain}>{asset.displayName}</Text>
               <Text style={styles.otherAssetValue}>
-                {b.display == null ? (b.address ? "—" : "Not set up yet") : `${b.display} USDT`}
+                {b.display == null
+                  ? b.address
+                    ? "—"
+                    : watchOnly
+                      ? "Not available (watch-only)"
+                      : "Setting up…"
+                  : `${b.display} USDT`}
+              </Text>
+            </View>
+          );
+        })}
+      </GlassCard>
+
+      <GlassCard style={styles.otherAssetsCard}>
+        <Text style={styles.otherAssetsTitle}>ETH</Text>
+        {ethBalances.map((b) => {
+          const asset = getAsset(b.assetId);
+          return (
+            <View key={b.assetId} style={styles.otherAssetRow}>
+              <Text style={styles.otherAssetChain}>{asset.displayName}</Text>
+              <Text style={styles.otherAssetValue}>
+                {b.display == null
+                  ? b.address
+                    ? "—"
+                    : watchOnly
+                      ? "Not available (watch-only)"
+                      : "Setting up…"
+                  : `${b.display} ETH`}
               </Text>
             </View>
           );

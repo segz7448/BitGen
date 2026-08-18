@@ -7,7 +7,7 @@ import { btcToSats } from "./validation";
 import { addAddress } from "../db/addressRepo";
 import { getDb } from "../db/database";
 import { sendTrc20Transfer } from "../network/tronClient";
-import { sendErc20Transfer } from "../network/evmClient";
+import { sendErc20Transfer, sendNativeTransfer } from "../network/evmClient";
 
 /**
  * Send `amount` (human decimal string/number, in the asset's own unit —
@@ -41,7 +41,19 @@ export async function sendAsset({ assetId, mnemonic, passphrase = "", toAddress,
     return { txid };
   }
 
-  if (asset.chain === "ethereum" || asset.chain === "bsc") {
+  if (asset.chain === "ethereum" || asset.chain === "bsc" || asset.chain === "morph") {
+    if (asset.isNative) {
+      const { txid } = await sendNativeTransfer({
+        chain: asset.chain,
+        mnemonic,
+        passphrase,
+        index: 0,
+        change: 0,
+        toAddress,
+        amountWei: amountBaseUnits,
+      });
+      return { txid };
+    }
     const { txid } = await sendErc20Transfer({
       chain: asset.chain,
       mnemonic,

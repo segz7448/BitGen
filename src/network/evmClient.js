@@ -20,6 +20,15 @@ const CHAIN_CONFIG = {
     chainId: 56,
     explorerTxUrl: (txid) => `https://bscscan.com/tx/${txid}`,
   },
+  // Morph — an Ethereum L2 (optimistic zkEVM rollup), native gas token is
+  // ETH just like L1. Chain ID and RPC confirmed against Morph's own docs
+  // (docs.morph.network) rather than assumed, since a wrong chain id here
+  // would sign a transaction for the wrong network.
+  morph: {
+    rpcUrls: ["https://rpc-quicknode.morph.network"],
+    chainId: 2818,
+    explorerTxUrl: (txid) => `https://explorer.morph.network/tx/${txid}`,
+  },
 };
 
 export function getProvider(chain) {
@@ -78,4 +87,32 @@ export async function sendErc20Transfer({ chain, mnemonic, index, change = 0, pa
 
 export function explorerTxUrl(chain, txid) {
   return CHAIN_CONFIG[chain].explorerTxUrl(txid);
+}
+
+/**
+ * Sign and broadcast a plain native-coin transfer (ETH on Ethereum/Morph,
+ * BNB on BSC) — NOT a token transfer, no contract call. amountWei must be
+ * a BigInt in wei (18 decimals), already converted by the caller.
+ */
+export async function sendNativeTransfer({ chain, mnemonic, index, change = 0, passphrase = "", toAddress, amountWei }) {
+  if (!ethers.isAddress(toAddress)) throw new Error("Invalid recipient address for this chain.");
+
+  const provider = getProvider(chain);
+  const signer = deriveEvmWallet(mnemonic, index, change, passphrase).connect(provider);
+
+  const balance = await provider.getBalance(signer.address);
+  const feeData = await provider.getFeeData();
+  const gasLimit = 21_000n; // fixed cost of a plain value transfer, no contract call
+  const estCostWei = gasLimit * (feeData.maxFeePerGas ?? feeData.gasPrice);
+
+  if (balance < amountWei + estCostWei) {
+    const coin = chain === "bsc" ? "BNB" : "ETH";
+    throw new Error(
+      `Not enough ${coin}. Sending ${ethers.formatEther(amountWei)} ${coin} needs ~${ethers.formatEther(estCostWei)} more for gas, but this address only has ${ethers.formatEther(balance)}.`
+    );
+  }
+
+  const tx = await signer.sendTransaction({ to: toAddress, value: amountWei, gasLimit });
+  const receipt = await tx.wait(1);
+  return { txid: tx.hash, confirmed: receipt.status === 1, explorerUrl: CHAIN_CONFIG[chain].explorerTxUrl(tx.hash) };
 }

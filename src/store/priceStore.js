@@ -38,6 +38,10 @@ let usdNgnRatio = null;
 let usdEurRatio = null;
 let usdGbpRatio = null;
 let refCount = 0;
+let wsReconnectStreak = 0;
+let fallbackTimer = null;
+const FALLBACK_AFTER_ATTEMPTS = 3; // ~1s+2s+4s of real retries before giving up on the socket for now
+const FALLBACK_POLL_MS = 10_000;
 
 function patchLastCandle(rangeKey, price) {
   const candles = priceStore.getState().candles[rangeKey];
@@ -109,9 +113,28 @@ export function startPriceStream() {
   fxTimer = setInterval(refreshFxRatios, FX_REFRESH_MS);
 
   socketHandle = connectPriceSocket({
-    onOpen: () => priceStore.setState({ connection: "open" }),
-    onReconnecting: () => priceStore.setState({ connection: "reconnecting" }),
-    onClose: () => priceStore.setState({ connection: "closed" }),
+    onOpen: () => {
+      wsReconnectStreak = 0;
+      stopFallbackPoll();
+      priceStore.setState({ connection: "open" });
+    },
+    onReconnecting: () => {
+      wsReconnectStreak++;
+      // A handful of quick retries is normal (a blip, app resuming from
+      // background, etc.) — but on some networks Binance's WS endpoint
+      // specifically is unreachable (carrier/firewall blocking that one
+      // host) while everything else works fine. Rather than leave the
+      // price frozen and the UI stuck on "Reconnecting…" forever, fall
+      // back to polling the same REST source the FX ratios already use.
+      // The socket keeps retrying with backoff in the background; if it
+      // ever succeeds, onOpen above stops the fallback poll immediately.
+      if (wsReconnectStreak >= FALLBACK_AFTER_ATTEMPTS) {
+        startFallbackPoll();
+      } else {
+        priceStore.setState({ connection: "reconnecting" });
+      }
+    },
+    onClose: () => priceStore.setState({ connection: fallbackTimer ? "polling" : "closed" }),
     onTrade: (price) => {
       const s = priceStore.getState();
       priceStore.setState({ ticker: { ...s.ticker, usd: price, at: Date.now() } });
@@ -136,11 +159,47 @@ export function startPriceStream() {
   });
 }
 
+function startFallbackPoll() {
+  priceStore.setState({ connection: "polling" });
+  if (fallbackTimer) return;
+  const tick = async () => {
+    const prices = await fetchBtcPrices().catch(() => null);
+    if (!prices?.usd) return;
+    if (usdNgnRatio || usdEurRatio || usdGbpRatio) {
+      priceStore.setState({
+        ticker: {
+          usd: prices.usd,
+          ngn: usdNgnRatio ? prices.usd * usdNgnRatio : prices.ngn,
+          eur: usdEurRatio ? prices.usd * usdEurRatio : prices.eur,
+          gbp: usdGbpRatio ? prices.usd * usdGbpRatio : prices.gbp,
+          at: Date.now(),
+        },
+      });
+    } else {
+      priceStore.setState({ ticker: { ...prices, at: Date.now() } });
+    }
+    for (const key of Object.keys(priceStore.getState().candles)) {
+      patchLastCandle(key, prices.usd);
+    }
+  };
+  tick();
+  fallbackTimer = setInterval(tick, FALLBACK_POLL_MS);
+}
+
+function stopFallbackPoll() {
+  if (fallbackTimer) {
+    clearInterval(fallbackTimer);
+    fallbackTimer = null;
+  }
+}
+
 export function stopPriceStream() {
   refCount = Math.max(0, refCount - 1);
   if (refCount > 0) return;
   socketHandle?.close();
   socketHandle = null;
+  stopFallbackPoll();
+  wsReconnectStreak = 0;
   if (fxTimer) {
     clearInterval(fxTimer);
     fxTimer = null;
