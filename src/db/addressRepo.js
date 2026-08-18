@@ -69,12 +69,25 @@ export async function setAddressLabel(address, label) {
 }
 
 /**
+ * Next unused derivation index for a given asset — shared by BTC's
+ * generateNextAddress below and multiAssetAddress.js's EVM/Tron
+ * equivalent, so both stay consistent about how "next" is computed.
+ */
+export async function getNextDerivationIndex(assetId, change = 0) {
+  const db = await getDb();
+  const row = await db.getFirstAsync(
+    `SELECT MAX(derivation_index) as maxIdx FROM addresses WHERE change_type = ? AND asset_id = ?`,
+    [change, assetId]
+  );
+  return (row?.maxIdx ?? -1) + 1;
+}
+
+/**
  * Derive and store the next unused receiving address, then mark it current.
  * This is what "generate new address" does — old ones stay active and
  * fully able to receive funds; they just stop being the one shown by default.
  */
-export async function generateNextAddress(mnemonic, passphrase = "") {
-  const db = await getDb();
+export async function generateNextAddress(mnemonic, passphrase = "") {  const db = await getDb();
   const row = await db.getFirstAsync(
     `SELECT MAX(derivation_index) as maxIdx FROM addresses WHERE change_type = 0 AND asset_id = 'BTC'`
   );

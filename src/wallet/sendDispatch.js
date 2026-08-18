@@ -14,12 +14,14 @@ import { sendErc20Transfer, sendNativeTransfer } from "../network/evmClient";
  * BTC or USDT, not sats/base-units) of `assetId` to `toAddress`.
  * Returns { txid }.
  *
- * BTC follows the existing UTXO flow (same logic as SendScreen). The USDT
- * variants use index 0 / change 0 — the single reused address from
- * multiAssetAddress.js's getOrCreateAddress — since those are account-model
- * chains, not UTXO-based.
+ * BTC follows the existing UTXO flow (same logic as SendScreen). The
+ * account-model assets (USDT/ETH variants) sign from `fromIndex` (default
+ * 0, the original single reused address) — pass the specific
+ * derivation_index of whichever address you're spending from if the
+ * wallet has generated more than one for that asset (see
+ * multiAssetAddress.js's generateNextAccountAddress).
  */
-export async function sendAsset({ assetId, mnemonic, passphrase = "", toAddress, amount }) {
+export async function sendAsset({ assetId, mnemonic, passphrase = "", toAddress, amount, fromIndex = 0 }) {
   const asset = getAsset(assetId);
 
   if (assetId === ASSET_IDS.BTC) {
@@ -32,7 +34,7 @@ export async function sendAsset({ assetId, mnemonic, passphrase = "", toAddress,
     const { txid } = await sendTrc20Transfer({
       mnemonic,
       passphrase,
-      index: 0,
+      index: fromIndex,
       change: 0,
       contractAddress: asset.contractAddress,
       toAddress,
@@ -47,7 +49,7 @@ export async function sendAsset({ assetId, mnemonic, passphrase = "", toAddress,
         chain: asset.chain,
         mnemonic,
         passphrase,
-        index: 0,
+        index: fromIndex,
         change: 0,
         toAddress,
         amountWei: amountBaseUnits,
@@ -58,7 +60,7 @@ export async function sendAsset({ assetId, mnemonic, passphrase = "", toAddress,
       chain: asset.chain,
       mnemonic,
       passphrase,
-      index: 0,
+      index: fromIndex,
       change: 0,
       contractAddress: asset.contractAddress,
       toAddress,

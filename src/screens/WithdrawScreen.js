@@ -7,7 +7,7 @@ import { loadMnemonic, loadPassphrase } from "../wallet/secureSeed";
 import { isWatchOnly } from "../wallet/walletMode";
 import { sendAsset } from "../wallet/sendDispatch";
 import { getAssetBalanceDisplay } from "../network/multiAssetBalance";
-import { getCurrentAddress } from "../db/addressRepo";
+import { getCurrentAddress, getActiveAddresses } from "../db/addressRepo";
 
 const GAS_COIN = { bsc: "BNB", ethereum: "ETH", morph: "ETH", tron: "TRX" };
 
@@ -38,17 +38,20 @@ function AccountModelWithdrawForm({ assetId, navigation }) {
   const [watchOnly, setWatchOnly] = useState(false);
   const [available, setAvailable] = useState(null);
   const [loadingBalance, setLoadingBalance] = useState(true);
+  const [activeAddrs, setActiveAddrs] = useState([]);
+  const [fromAddr, setFromAddr] = useState(null); // the row being spent from
+  const [showFromPicker, setShowFromPicker] = useState(false);
 
   useEffect(() => {
     isWatchOnly().then(setWatchOnly);
     (async () => {
       try {
-        const addrRow = await getCurrentAddress(assetId);
-        if (!addrRow) {
-          setAvailable(0);
-          return;
-        }
-        setAvailable(await getAssetBalanceDisplay(assetId, addrRow.address));
+        const rows = await getActiveAddresses(0, assetId);
+        setActiveAddrs(rows);
+        const current = (await getCurrentAddress(assetId)) || rows[0];
+        setFromAddr(current || null);
+        if (current) setAvailable(await getAssetBalanceDisplay(assetId, current.address));
+        else setAvailable(0);
       } catch {
         setAvailable(null);
       } finally {
@@ -56,6 +59,14 @@ function AccountModelWithdrawForm({ assetId, navigation }) {
       }
     })();
   }, [assetId]);
+
+  const selectFromAddr = async (row) => {
+    setFromAddr(row);
+    setShowFromPicker(false);
+    setLoadingBalance(true);
+    setAvailable(await getAssetBalanceDisplay(assetId, row.address));
+    setLoadingBalance(false);
+  };
 
   const send = async () => {
     if (watchOnly) {
@@ -90,6 +101,7 @@ function AccountModelWithdrawForm({ assetId, navigation }) {
                 passphrase,
                 toAddress: toAddress.trim(),
                 amount: amt,
+                fromIndex: fromAddr?.derivation_index ?? 0,
               });
               Alert.alert("Sent", `Transaction broadcast:\n${txid}`, [
                 { text: "OK", onPress: () => navigation.navigate("Home") },
@@ -130,6 +142,23 @@ function AccountModelWithdrawForm({ assetId, navigation }) {
       <Text style={styles.available}>
         {loadingBalance ? "Loading…" : available == null ? "—" : `${available} ${asset.symbol}`}
       </Text>
+
+      {activeAddrs.length > 1 && (
+        <>
+          <TouchableOpacity onPress={() => setShowFromPicker((s) => !s)} style={{ marginTop: spacing(1) }}>
+            <Text style={styles.fromLink}>
+              {showFromPicker ? "Hide" : `From: Address #${fromAddr?.derivation_index ?? 0} (tap to change)`}
+            </Text>
+          </TouchableOpacity>
+          {showFromPicker && activeAddrs.map((row) => (
+            <TouchableOpacity key={row.address} onPress={() => selectFromAddr(row)} style={styles.fromRow}>
+              <Text style={[styles.fromRowText, row.address === fromAddr?.address && { color: colors.orange }]} numberOfLines={1}>
+                #{row.derivation_index} · {row.address}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </>
+      )}
 
       <Text style={styles.label}>Recipient Address</Text>
       <TextInput
@@ -174,6 +203,9 @@ function makeStyles(colors) {
     hint: { color: colors.subtext, fontSize: 12, lineHeight: 17, marginBottom: spacing(2) },
     label: { color: colors.subtext, fontSize: 12, marginBottom: spacing(0.5), marginTop: spacing(2) },
     available: { color: colors.text, fontSize: 15, fontWeight: "600" },
+    fromLink: { color: colors.orange, fontSize: 12, fontWeight: "600" },
+    fromRow: { paddingVertical: spacing(1), borderBottomWidth: 1, borderBottomColor: colors.border },
+    fromRowText: { color: colors.subtext, fontSize: 11 },
     input: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: spacing(1.5), color: colors.text },
     sendButton: { backgroundColor: colors.orange, borderRadius: 14, paddingVertical: spacing(2), alignItems: "center", marginTop: spacing(4) },
     sendButtonText: { color: "#0B0B0F", fontWeight: "700", fontSize: 16 },

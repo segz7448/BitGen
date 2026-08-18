@@ -11,7 +11,8 @@ import { isWatchOnly } from "../wallet/walletMode";
 import { ASSET_IDS, getAsset } from "../wallet/assets";
 import { getOrCreateAddress } from "../wallet/multiAssetAddress";
 import { loadMnemonic, loadPassphrase } from "../wallet/secureSeed";
-import { getAssetBalanceDisplay } from "../network/multiAssetBalance";
+import { getAssetTotalBalance } from "../network/multiAssetBalance";
+import { getActiveAddresses } from "../db/addressRepo";
 import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { unreadNotificationCount } from "../db/notificationRepo";
@@ -59,8 +60,9 @@ async function loadBalancesFor(assetIds, watchOnly) {
         }
       }
       if (!addrRow) return { assetId, display: null, address: null };
-      const display = await getAssetBalanceDisplay(assetId, addrRow.address);
-      return { assetId, address: addrRow.address, display };
+      const activeAddrs = await getActiveAddresses(0, assetId);
+      const total = await getAssetTotalBalance(assetId, activeAddrs.length ? activeAddrs : [addrRow]);
+      return { assetId, address: addrRow.address, display: total != null ? total : null };
     })
   );
   return results;

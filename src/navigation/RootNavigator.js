@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, ActivityIndicator, AppState } from "react-native";
+import { View, Text, TouchableOpacity, ActivityIndicator, AppState, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { hasMnemonic } from "../wallet/secureSeed";
 import { hasPin } from "../wallet/appLock";
@@ -47,23 +47,38 @@ export default function RootNavigator() {
   const [walletExists, setWalletExists] = useState(false);
   const [pinExists, setPinExists] = useState(false);
   const [locked, setLocked] = useState(false);
+  const [bootError, setBootError] = useState(null);
   const appState = useRef(AppState.currentState);
 
   const bootstrap = async () => {
-    const exists = await hasMnemonic();
-    const watchOnly = await isWatchOnly();
-    const pin = watchOnly ? false : await hasPin();
-    setWalletExists(exists || watchOnly);
-    setPinExists(pin);
-    setLocked(pin); // require unlock on cold start if a PIN is configured
-    setInitializing(false);
+    setBootError(null);
+    try {
+      const exists = await hasMnemonic();
+      const watchOnly = await isWatchOnly();
+      const pin = watchOnly ? false : await hasPin();
+      setWalletExists(exists || watchOnly);
+      setPinExists(pin);
+      setLocked(pin); // require unlock on cold start if a PIN is configured
+      setInitializing(false);
 
-    // Automatic, no toggle: the moment a wallet exists on this device,
-    // BTC/USDT-received, tx-confirmed, and price-move notifications start
-    // running for the lifetime of the app — including while the lock
-    // screen is showing, since funds don't wait for the user to unlock.
-    if (exists || watchOnly) {
-      startRealtimeNotifications().catch(() => {});
+      // Automatic, no toggle: the moment a wallet exists on this device,
+      // BTC/USDT-received, tx-confirmed, and price-move notifications start
+      // running for the lifetime of the app — including while the lock
+      // screen is showing, since funds don't wait for the user to unlock.
+      if (exists || watchOnly) {
+        startRealtimeNotifications().catch(() => {});
+      }
+    } catch (e) {
+      // CRITICAL: hasMnemonic() reads from the Android Keystore-backed
+      // SecureStore, which can occasionally throw (transient keystore
+      // lock, OS-level hiccup) rather than just resolve to null. Treating
+      // a failed READ the same as "no wallet" would silently route to
+      // the Welcome/create-wallet screen — a real wallet with real funds
+      // would look deleted, and worse, the user could create a NEW
+      // wallet believing the old one is gone. Surface this as a distinct
+      // error state with a retry instead of ever guessing "no wallet."
+      setBootError(e.message || "Couldn't access secure storage");
+      setInitializing(false);
     }
   };
 
@@ -91,6 +106,23 @@ export default function RootNavigator() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color={colors.orange} />
+      </View>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <View style={[bootErrorStyles.container, { backgroundColor: colors.bg }]}>
+        <Text style={[bootErrorStyles.title, { color: colors.text }]}>Couldn't unlock wallet storage</Text>
+        <Text style={[bootErrorStyles.body, { color: colors.subtext }]}>
+          BITGEN couldn't read your device's secure storage just now — this is usually temporary (a
+          keystore hiccup or the OS still finishing startup). Your wallet has NOT been deleted; nothing
+          gets removed just because this check failed. Tap Retry, or fully close and reopen the app if
+          it keeps happening.
+        </Text>
+        <TouchableOpacity style={[bootErrorStyles.button, { backgroundColor: colors.orange }]} onPress={bootstrap}>
+          <Text style={bootErrorStyles.buttonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -144,3 +176,11 @@ export default function RootNavigator() {
     </Stack.Navigator>
   );
 }
+
+const bootErrorStyles = StyleSheet.create({
+  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
+  title: { fontSize: 17, fontWeight: "700", marginBottom: 12, textAlign: "center" },
+  body: { fontSize: 13, lineHeight: 19, textAlign: "center", marginBottom: 24 },
+  button: { borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
+  buttonText: { color: "#0B0B0F", fontWeight: "700", fontSize: 15 },
+});

@@ -19,6 +19,7 @@ import { AppState } from "react-native";
  */
 
 const STREAM_URL = "wss://stream.binance.com:9443/ws/btcusdt@trade";
+export const ETH_STREAM_URL = "wss://stream.binance.com:9443/ws/ethusdt@trade";
 
 const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 1_000;
@@ -33,9 +34,11 @@ const STALE_CONNECTION_MS = 20_000;
  * @param {() => void} [handlers.onOpen]
  * @param {() => void} [handlers.onReconnecting]
  * @param {() => void} [handlers.onClose]
+ * @param {string} [streamUrl] — defaults to the BTC/USDT stream; pass
+ *   ETH_STREAM_URL (exported below) for the ETH/USDT stream instead.
  * @returns {{ close: () => void }}
  */
-export function connectPriceSocket({ onTrade, onOpen, onReconnecting, onClose }) {
+export function connectPriceSocket({ onTrade, onOpen, onReconnecting, onClose }, streamUrl = STREAM_URL) {
   let ws = null;
   let attempt = 0;
   let closedByCaller = false;
@@ -97,7 +100,7 @@ export function connectPriceSocket({ onTrade, onOpen, onReconnecting, onClose })
   function open() {
     if (closedByCaller || backgrounded) return;
     teardownSocket();
-    ws = new WebSocket(STREAM_URL);
+    ws = new WebSocket(streamUrl);
 
     ws.onopen = () => {
       attempt = 0;

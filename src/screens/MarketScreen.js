@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { spacing, useTheme } from "../theme";
-import { useTicker, useConnectionStatus, startPriceStream, stopPriceStream } from "../store/priceStore";
-import { formatFiat, fetchEthPrices } from "../network/priceFeed";
+import { useTicker, useConnectionStatus, startPriceStream, stopPriceStream, useEthTicker, useEthConnectionStatus, startEthPriceStream, stopEthPriceStream } from "../store/priceStore";
+import { formatFiat } from "../network/priceFeed";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { GlassCard, GlassIcon } from "../components/Glass";
 import CurrencySelector from "../components/CurrencySelector";
+import CoinSelector from "../components/CoinSelector";
 
 export default function MarketScreen({ navigation }) {
   const { colors } = useTheme();
@@ -17,46 +18,53 @@ export default function MarketScreen({ navigation }) {
 
   useEffect(() => {
     startPriceStream();
-    return () => stopPriceStream();
+    startEthPriceStream();
+    return () => {
+      stopPriceStream();
+      stopEthPriceStream();
+    };
   }, []);
 
-  const [ethPrices, setEthPrices] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    const load = () => fetchEthPrices().then((p) => alive && setEthPrices(p));
-    load();
-    const t = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(t); };
-  }, []);
+  const ethTicker = useEthTicker();
+  const ethConnection = useEthConnectionStatus();
+  const ethStatusLabel = { open: "Live", connecting: "Connecting…", reconnecting: "Reconnecting…", polling: "Live (backup feed)", closed: "Offline", idle: "Idle" }[ethConnection] || ethConnection;
+  const ethStatusColor = ethConnection === "open" || ethConnection === "polling" ? colors.green : colors.subtext;
 
   const price = ticker[currency];
   const statusLabel = { open: "Live", connecting: "Connecting…", reconnecting: "Reconnecting…", polling: "Live (backup feed)", closed: "Offline", idle: "Idle" }[connection] || connection;
   const statusColor = connection === "open" || connection === "polling" ? colors.green : colors.subtext;
 
-  // Two-way converter — BTC amount <-> fiat amount, using ticker[currency]
-  // (already "price of 1 BTC in that currency", so no extra rate lookup).
-  const [btcAmount, setBtcAmount] = useState("1");
+  // Two-way converter — crypto amount <-> fiat amount. Rate for the
+  // selected coin is derived as coinUsdPrice * (ticker[currency]/ticker.usd),
+  // reusing BTC's own multi-currency ticker purely as the USD->currency FX
+  // cross-rate (that ratio is currency math, not a BTC-specific fact) so
+  // ETH/USDT conversion doesn't need its own NGN/EUR/GBP price fetch.
+  const [convCoin, setConvCoin] = useState("BTC");
+  const [coinAmount, setCoinAmount] = useState("1");
   const [fiatAmount, setFiatAmount] = useState("");
-  const [lastEdited, setLastEdited] = useState("btc");
+  const [lastEdited, setLastEdited] = useState("coin");
   const [convCurrency, setConvCurrency] = useState("usd");
 
-  const convRate = ticker[convCurrency];
+  const coinUsdPrice = { BTC: ticker.usd, ETH: ethTicker.usd, USDT: 1 }[convCoin];
+  const fxMultiplier = convCurrency === "usd" ? 1 : ticker.usd ? ticker[convCurrency] / ticker.usd : null;
+  const convRate = coinUsdPrice != null && fxMultiplier != null ? coinUsdPrice * fxMultiplier : null;
+  const coinDecimals = convCoin === "USDT" ? 2 : convCoin === "ETH" ? 6 : 8;
 
   useEffect(() => {
     if (convRate == null) return;
-    if (lastEdited === "btc") {
-      const n = parseFloat(btcAmount);
+    if (lastEdited === "coin") {
+      const n = parseFloat(coinAmount);
       setFiatAmount(Number.isFinite(n) ? (n * convRate).toFixed(2) : "");
     } else {
       const n = parseFloat(fiatAmount);
-      setBtcAmount(Number.isFinite(n) ? (n / convRate).toFixed(8) : "");
+      setCoinAmount(Number.isFinite(n) ? (n / convRate).toFixed(coinDecimals) : "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convRate, convCurrency]);
+  }, [convRate, convCurrency, convCoin]);
 
-  const onBtcChange = (v) => {
-    setLastEdited("btc");
-    setBtcAmount(v);
+  const onCoinChange = (v) => {
+    setLastEdited("coin");
+    setCoinAmount(v);
     const n = parseFloat(v);
     setFiatAmount(Number.isFinite(n) && convRate != null ? (n * convRate).toFixed(2) : "");
   };
@@ -64,7 +72,7 @@ export default function MarketScreen({ navigation }) {
     setLastEdited("fiat");
     setFiatAmount(v);
     const n = parseFloat(v);
-    setBtcAmount(Number.isFinite(n) && convRate != null ? (n / convRate).toFixed(8) : "");
+    setCoinAmount(Number.isFinite(n) && convRate != null ? (n / convRate).toFixed(coinDecimals) : "");
   };
 
   return (
@@ -101,8 +109,11 @@ export default function MarketScreen({ navigation }) {
           <Text style={styles.coinName}>Ethereum</Text>
         </View>
         <View style={{ alignItems: "flex-end" }}>
-          <Text style={styles.coinPrice}>{ethPrices?.[currency] != null ? formatFiat(ethPrices[currency], currency) : "—"}</Text>
-          <Text style={styles.coinSubStatus}>Market price</Text>
+          <Text style={styles.coinPrice}>{ethTicker.usd != null ? formatFiat(ethTicker[currency], currency) : "—"}</Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.dot, { backgroundColor: ethStatusColor }]} />
+            <Text style={[styles.statusText, { color: ethStatusColor }]}>{ethStatusLabel}</Text>
+          </View>
         </View>
       </GlassCard>
       <Text style={styles.usdtNote}>
@@ -132,12 +143,12 @@ export default function MarketScreen({ navigation }) {
           <TextInput
             style={styles.convInput}
             keyboardType="decimal-pad"
-            value={btcAmount}
-            onChangeText={onBtcChange}
+            value={coinAmount}
+            onChangeText={onCoinChange}
             placeholder="0"
             placeholderTextColor={colors.subtext}
           />
-          <Text style={styles.convUnit}>BTC</Text>
+          <CoinSelector value={convCoin} onChange={setConvCoin} />
         </View>
 
         <Ionicons name="swap-vertical" size={20} color={colors.subtext} style={{ alignSelf: "center", marginVertical: spacing(1) }} />

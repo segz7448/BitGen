@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { createStore, useStoreSlice } from "./pubsubStore";
-import { connectPriceSocket } from "../network/priceSocket";
-import { fetchBtcPrices, fetchBtcOhlc, fetchBtcMarketChart } from "../network/priceFeed";
+import { connectPriceSocket, ETH_STREAM_URL } from "../network/priceSocket";
+import { fetchBtcPrices, fetchBtcOhlc, fetchBtcMarketChart, fetchEthPrices } from "../network/priceFeed";
 
 // FX ratio refresh (usd -> ngn/eur) is genuinely slow-moving compared to
 // BTC/USD itself, so it stays on a light REST poll rather than a socket —
@@ -30,6 +30,11 @@ export const priceStore = createStore({
   ticker: { usd: null, ngn: null, eur: null, gbp: null, at: 0 },
   candles: {},
   volumes: {},
+  // ETH gets its own connection state + ticker, entirely independent of
+  // BTC's above — separate Binance stream, separate fallback poll, so
+  // one asset's connectivity issues never affect the other's.
+  ethConnection: "idle",
+  ethTicker: { usd: null, ngn: null, eur: null, gbp: null, at: 0 },
 });
 
 let socketHandle = null;
@@ -208,6 +213,113 @@ export function stopPriceStream() {
 }
 
 // ---------------------------------------------------------------------
+// ETH — mirrors the BTC stream above (same reconnect-with-fallback
+// approach) but fully independent state, socket, and ref count.
+// ---------------------------------------------------------------------
+let ethSocketHandle = null;
+let ethRefCount = 0;
+let ethReconnectStreak = 0;
+let ethFallbackTimer = null;
+
+export function startEthPriceStream() {
+  ethRefCount++;
+  if (ethSocketHandle) return;
+
+  priceStore.setState({ ethConnection: "connecting" });
+
+  ethSocketHandle = connectPriceSocket(
+    {
+      onOpen: () => {
+        ethReconnectStreak = 0;
+        stopEthFallbackPoll();
+        priceStore.setState({ ethConnection: "open" });
+      },
+      onReconnecting: () => {
+        ethReconnectStreak++;
+        if (ethReconnectStreak >= FALLBACK_AFTER_ATTEMPTS) {
+          startEthFallbackPoll();
+        } else {
+          priceStore.setState({ ethConnection: "reconnecting" });
+        }
+      },
+      onClose: () => priceStore.setState({ ethConnection: ethFallbackTimer ? "polling" : "closed" }),
+      onTrade: (price) => {
+        const s = priceStore.getState().ethTicker;
+        // Live trade price is USD; keep the other currencies' last-known
+        // cross-rate ratio (from the periodic REST fetch below) rather
+        // than freezing them until the next poll.
+        const ratio = s.usd ? price / s.usd : 1;
+        priceStore.setState({
+          ethTicker: {
+            usd: price,
+            ngn: s.ngn ? s.ngn * ratio : s.ngn,
+            eur: s.eur ? s.eur * ratio : s.eur,
+            gbp: s.gbp ? s.gbp * ratio : s.gbp,
+            at: Date.now(),
+          },
+        });
+      },
+    },
+    ETH_STREAM_URL
+  );
+
+  if (ethFxTimer) clearInterval(ethFxTimer);
+  refreshEthPrices();
+  ethFxTimer = setInterval(refreshEthPrices, FX_REFRESH_MS);
+}
+
+let ethFxTimer = null;
+
+async function refreshEthPrices() {
+  const prices = await fetchEthPrices().catch(() => null);
+  if (!prices) return;
+  const live = priceStore.getState().ethTicker.usd ?? prices.usd;
+  const ratio = prices.usd ? live / prices.usd : 1;
+  priceStore.setState({
+    ethTicker: {
+      usd: live,
+      ngn: prices.ngn ? prices.ngn * ratio : prices.ngn,
+      eur: prices.eur ? prices.eur * ratio : prices.eur,
+      gbp: prices.gbp ? prices.gbp * ratio : prices.gbp,
+      at: Date.now(),
+    },
+  });
+}
+
+function startEthFallbackPoll() {
+  priceStore.setState({ ethConnection: "polling" });
+  if (ethFallbackTimer) return;
+  const tick = async () => {
+    const prices = await fetchEthPrices().catch(() => null);
+    if (!prices?.usd) return;
+    priceStore.setState({ ethTicker: { ...prices, at: Date.now() } });
+  };
+  tick();
+  ethFallbackTimer = setInterval(tick, FALLBACK_POLL_MS);
+}
+
+function stopEthFallbackPoll() {
+  if (ethFallbackTimer) {
+    clearInterval(ethFallbackTimer);
+    ethFallbackTimer = null;
+  }
+}
+
+export function stopEthPriceStream() {
+  ethRefCount = Math.max(0, ethRefCount - 1);
+  if (ethRefCount > 0) return;
+  ethSocketHandle?.close();
+  ethSocketHandle = null;
+  stopEthFallbackPoll();
+  ethReconnectStreak = 0;
+  if (ethFxTimer) {
+    clearInterval(ethFxTimer);
+    ethFxTimer = null;
+  }
+  priceStore.setState({ ethConnection: "idle" });
+}
+
+// ---------------------------------------------------------------------
 // Selector hooks — each one subscribes a component to exactly the slice
 // it needs, so a tick that only moves `ticker.usd` never re-renders a
 // component that only reads `connection`, and vice versa.
@@ -219,6 +331,14 @@ export function useConnectionStatus() {
 
 export function useTicker() {
   return useStoreSlice(priceStore, (s) => s.ticker);
+}
+
+export function useEthConnectionStatus() {
+  return useStoreSlice(priceStore, (s) => s.ethConnection);
+}
+
+export function useEthTicker() {
+  return useStoreSlice(priceStore, (s) => s.ethTicker);
 }
 
 export function useCandles(days, currency = "usd") {
