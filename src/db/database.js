@@ -9,13 +9,55 @@ export async function getDb() {
   return dbInstance;
 }
 
+/**
+ * Existing installs may already have `addresses` created with the old
+ * `address TEXT UNIQUE NOT NULL` column constraint — CREATE TABLE IF NOT
+ * EXISTS above won't touch it since the table already exists. SQLite
+ * can't drop a column constraint via ALTER TABLE, so detect the old
+ * constraint and, if present, rebuild the table with the correct one,
+ * copying every existing row across first. This is what "heals" wallets
+ * that already hit the bug where a second EVM asset sharing an address
+ * with an existing one silently never got its own address row.
+ */
+async function migrateAddressUniqueConstraint(db) {
+  const table = await db.getFirstAsync(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'addresses'`
+  );
+  if (!table?.sql || !/address\s+TEXT\s+UNIQUE/i.test(table.sql)) return; // already migrated or fresh install
+
+  await db.execAsync(`
+    ALTER TABLE addresses RENAME TO addresses_pre_migration;
+
+    CREATE TABLE addresses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      address TEXT NOT NULL,
+      derivation_index INTEGER NOT NULL,
+      change_type INTEGER NOT NULL DEFAULT 0,
+      label TEXT DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      is_current INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      balance_sats INTEGER NOT NULL DEFAULT 0,
+      asset_id TEXT NOT NULL DEFAULT 'BTC'
+    );
+
+    INSERT INTO addresses (id, address, derivation_index, change_type, label, is_active, is_current, created_at, balance_sats, asset_id)
+      SELECT id, address, derivation_index, change_type, label, is_active, is_current, created_at, balance_sats, asset_id
+      FROM addresses_pre_migration;
+
+    DROP TABLE addresses_pre_migration;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_addresses_unique ON addresses(address, asset_id);
+  `);
+}
+
 async function migrate(db) {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
 
     CREATE TABLE IF NOT EXISTS addresses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      address TEXT UNIQUE NOT NULL,
+      address TEXT NOT NULL,
       derivation_index INTEGER NOT NULL,
       change_type INTEGER NOT NULL DEFAULT 0, -- 0 = receive, 1 = change
       label TEXT DEFAULT '',
@@ -23,9 +65,23 @@ async function migrate(db) {
       is_current INTEGER NOT NULL DEFAULT 0,  -- the one currently shown on Receive screen
       created_at INTEGER NOT NULL,
       balance_sats INTEGER NOT NULL DEFAULT 0,
-      asset_id TEXT NOT NULL DEFAULT 'BTC'    -- 'BTC' | 'USDT_TRC20' | 'USDT_ERC20' | 'USDT_BEP20', see wallet/assets.js
+      asset_id TEXT NOT NULL DEFAULT 'BTC'    -- 'BTC' | 'USDT_TRC20' | 'ETH_ETHEREUM' | etc, see wallet/assets.js
     );
 
+    -- Uniqueness is per (address, asset_id), NOT per address alone.
+    -- Ethereum/Morph/BSC all share one BIP44 path (m/44'/60'/...), so
+    -- ETH_ETHEREUM, ETH_MORPH, ETH_BEP20, USDT_ERC20, and USDT_BEP20 all
+    -- derive to the IDENTICAL address string — that's expected (same as
+    -- MetaMask showing one address across every EVM chain), not a
+    -- collision to prevent. A plain UNIQUE(address) here would let only
+    -- the first of those assets ever get a stored row; every other
+    -- asset's address would silently fail to insert forever.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_addresses_unique ON addresses(address, asset_id);
+  `);
+
+  await migrateAddressUniqueConstraint(db);
+
+  await db.execAsync(`
     CREATE TABLE IF NOT EXISTS swaps (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL DEFAULT 'changenow',

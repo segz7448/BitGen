@@ -55,17 +55,18 @@ export async function setCurrentAddress(address, assetId = "BTC") {
   );
 }
 
-export async function setAddressActive(address, isActive) {
+export async function setAddressActive(address, isActive, assetId = "BTC") {
   const db = await getDb();
-  await db.runAsync(`UPDATE addresses SET is_active = ? WHERE address = ?`, [
+  await db.runAsync(`UPDATE addresses SET is_active = ? WHERE address = ? AND asset_id = ?`, [
     isActive ? 1 : 0,
     address,
+    assetId,
   ]);
 }
 
-export async function setAddressLabel(address, label) {
+export async function setAddressLabel(address, label, assetId = "BTC") {
   const db = await getDb();
-  await db.runAsync(`UPDATE addresses SET label = ? WHERE address = ?`, [label, address]);
+  await db.runAsync(`UPDATE addresses SET label = ? WHERE address = ? AND asset_id = ?`, [label, address, assetId]);
 }
 
 /**
