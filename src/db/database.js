@@ -136,6 +136,14 @@ async function migrate(db) {
       unified_micros INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Same idea as usdt_chain_ledger above, for the pooled 'ETH' row.
+    -- Unit here is ETH_POOL_DECIMALS (8 decimals) from ethPool.js, not
+    -- wei directly — see that file for why.
+    CREATE TABLE IF NOT EXISTS eth_chain_ledger (
+      chain_asset_id TEXT PRIMARY KEY, -- 'ETH_ETHEREUM' | 'ETH_MORPH' | 'ETH_BEP20'
+      unified_pool_units INTEGER NOT NULL DEFAULT 0
+    );
+
     -- Audit trail of internal Funding <-> Unified transfers. No on-chain
     -- tx, no fee — purely a ledger move, but still recorded so
     -- TransactionHistoryScreen (or a future dedicated view) can show it.
@@ -268,6 +276,7 @@ export async function resetDatabase() {
     DELETE FROM account_balances;
     DELETE FROM internal_transfers;
     DELETE FROM usdt_chain_ledger;
+    DELETE FROM eth_chain_ledger;
     DELETE FROM trades;
     DELETE FROM dex_swaps;
     DELETE FROM dex_limit_orders;

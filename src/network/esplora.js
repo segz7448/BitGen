@@ -72,9 +72,10 @@ export async function fetchTxHistory(address) {
 }
 
 /**
- * Full details for a single transaction — needed for CPFP, where we have
- * to know the parent's own fee and vsize to compute how much the child
- * needs to add on top to reach a target *package* fee rate.
+ * Full details for a single transaction — used both for CPFP (fee/vsize)
+ * and for the transaction explorer detail screen (inputs, outputs, block
+ * info). Esplora's raw response already carries everything; this just
+ * normalizes field names/shapes into what the UI wants.
  */
 export async function fetchTxDetails(txid) {
   const res = await fetchWithFallback(`/tx/${txid}`);
@@ -86,9 +87,31 @@ export async function fetchTxDetails(txid) {
     txid: data.txid,
     fee: data.fee,
     vsize,
+    size: data.size,
+    weight: data.weight,
     confirmed: !!data.status?.confirmed,
-    vout: data.vout,
+    blockHeight: data.status?.block_height ?? null,
+    blockHash: data.status?.block_hash ?? null,
+    blockTime: data.status?.block_time ? data.status.block_time * 1000 : null, // Esplora gives seconds
+    vin: (data.vin || []).map((input) => ({
+      txid: input.txid,
+      vout: input.vout,
+      address: input.prevout?.scriptpubkey_address || null,
+      value: input.prevout?.value ?? null,
+      isCoinbase: !!input.is_coinbase,
+    })),
+    vout: (data.vout || []).map((output) => ({
+      address: output.scriptpubkey_address || null,
+      value: output.value,
+    })),
   };
+}
+
+/** Current chain tip height — needed to compute confirmation counts. */
+export async function fetchTipHeight() {
+  const res = await fetchWithFallback(`/blocks/tip/height`);
+  const text = await res.text();
+  return parseInt(text, 10);
 }
 
 /** Current recommended fee rates (sat/vB) by confirmation target. */

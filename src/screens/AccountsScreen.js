@@ -3,20 +3,26 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { spacing, useTheme } from "../theme";
-import { getBtcAccountBalances, getPooledUsdtAccountBalances, POOLED_USDT_ASSET_ID } from "../db/accountLedgerRepo";
+import { getBtcAccountBalances, getPooledUsdtAccountBalances, getPooledEthAccountBalances, POOLED_USDT_ASSET_ID, POOLED_ETH_ASSET_ID } from "../db/accountLedgerRepo";
 import { satsToFiat, formatFiat } from "../network/priceFeed";
-import { useTicker, startPriceStream, stopPriceStream } from "../store/priceStore";
+import { useTicker, useEthTicker, startPriceStream, stopPriceStream, startEthPriceStream, stopEthPriceStream } from "../store/priceStore";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { GlassCard, GlassIcon } from "../components/Glass";
 
 const ASSET_PANELS = [
   {
     assetId: "BTC", label: "BTC", unitsPerWhole: 100_000_000, decimals: 8,
-    fetchBalances: getBtcAccountBalances, toFiat: (ticker) => ticker.usd, icon: "logo-bitcoin",
+    fetchBalances: getBtcAccountBalances, toFiat: (ticker) => ticker.usd, icon: "logo-bitcoin", iconColor: (c) => c.orange,
   },
   {
     assetId: POOLED_USDT_ASSET_ID, label: "USDT", unitsPerWhole: 1_000_000, decimals: 2,
-    fetchBalances: getPooledUsdtAccountBalances, toFiat: () => 1, icon: "cash",
+    fetchBalances: getPooledUsdtAccountBalances, toFiat: () => 1, icon: "cash", iconColor: (c) => c.green,
+  },
+  {
+    assetId: POOLED_ETH_ASSET_ID, label: "ETH", unitsPerWhole: 100_000_000, decimals: 6,
+    // ETH_POOL_DECIMALS is 8 (see ethPool.js) — same scale as BTC's sats,
+    // coincidentally, so unitsPerWhole matches BTC's here too.
+    fetchBalances: getPooledEthAccountBalances, toFiat: (ticker, ethTicker) => ethTicker?.usd, icon: "diamond", iconColor: () => "#627EEA",
   },
 ];
 
@@ -35,12 +41,17 @@ export default function AccountsScreen({ navigation }) {
 
   const isFocused = useIsFocused();
   const ticker = useTicker();
+  const ethTicker = useEthTicker();
   const { currency } = useDisplayCurrency();
 
   React.useEffect(() => {
     if (!isFocused) return;
     startPriceStream();
-    return () => stopPriceStream();
+    startEthPriceStream();
+    return () => {
+      stopPriceStream();
+      stopEthPriceStream();
+    };
   }, [isFocused]);
 
   const load = useCallback(async () => {
@@ -56,10 +67,10 @@ export default function AccountsScreen({ navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Total est. value across both assets, for whichever tab (account) is active.
+  // Total est. value across all assets, for whichever tab (account) is active.
   const totalFiat = ASSET_PANELS.reduce((sum, panel) => {
     const b = balancesByAsset[panel.assetId] || { funding: 0, unified: 0 };
-    const fiatPrice = panel.toFiat(ticker);
+    const fiatPrice = panel.toFiat(ticker, ethTicker);
     const units = tab === "funding" ? b.funding : b.unified;
     const val = satsToFiat(units, fiatPrice);
     return sum + (val || 0);
@@ -106,14 +117,14 @@ export default function AccountsScreen({ navigation }) {
         ASSET_PANELS.map((panel) => {
           const b = balancesByAsset[panel.assetId] || { funding: 0, unified: 0 };
           const units = tab === "funding" ? b.funding : b.unified;
-          const fiatPrice = panel.toFiat(ticker);
+          const fiatPrice = panel.toFiat(ticker, ethTicker);
           const fiatVal = satsToFiat(units, fiatPrice);
           const amountDisplay = (units / panel.unitsPerWhole).toFixed(panel.decimals);
 
           return (
             <GlassCard key={panel.assetId} style={styles.assetRow}>
               <GlassIcon size={40}>
-                <Ionicons name={panel.icon} size={panel.icon === "cash" ? 20 : 22} color={panel.assetId === "BTC" ? colors.orange : colors.green} />
+                <Ionicons name={panel.icon} size={panel.icon === "cash" ? 20 : 22} color={panel.iconColor(colors)} />
               </GlassIcon>
               <View style={{ flex: 1, marginLeft: spacing(1.5) }}>
                 <Text style={styles.assetLabel}>{panel.label}</Text>

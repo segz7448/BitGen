@@ -6,14 +6,17 @@ import { spacing, useTheme } from "../theme";
 import {
   getBtcAccountBalances,
   getPooledUsdtAccountBalances,
+  getPooledEthAccountBalances,
   transferBetweenAccounts,
   POOLED_USDT_ASSET_ID,
+  POOLED_ETH_ASSET_ID,
 } from "../db/accountLedgerRepo";
 import { GlassCard } from "../components/Glass";
 
 const ASSET_PANELS = [
   { assetId: "BTC", label: "BTC", unitsPerWhole: 100_000_000, decimals: 8, fetchBalances: getBtcAccountBalances },
   { assetId: POOLED_USDT_ASSET_ID, label: "USDT", unitsPerWhole: 1_000_000, decimals: 2, fetchBalances: getPooledUsdtAccountBalances },
+  { assetId: POOLED_ETH_ASSET_ID, label: "ETH", unitsPerWhole: 100_000_000, decimals: 6, fetchBalances: getPooledEthAccountBalances },
 ];
 
 const ACCOUNT_LABEL = { funding: "Funding Account", unified: "Unified Trading Account" };

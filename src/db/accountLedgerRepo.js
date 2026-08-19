@@ -1,6 +1,7 @@
 import { getDb } from "./database";
 import { getTotalBalance } from "./addressRepo";
 import { fetchPooledUsdtBalance, USDT_CHAIN_IDS } from "../network/usdtPool";
+import { fetchPooledEthBalance, ETH_CHAIN_IDS } from "../network/ethPool";
 
 export const ACCOUNTS = {
   FUNDING: "funding",
@@ -8,6 +9,17 @@ export const ACCOUNTS = {
 };
 
 export const POOLED_USDT_ASSET_ID = "USDT";
+export const POOLED_ETH_ASSET_ID = "ETH";
+
+// Which multi-chain assets are "pooled" (one Unified number backed by
+// several real on-chain balances) and the ledger table tracking which
+// real chain each unified unit maps back to. Keyed by pooled asset id so
+// transferBetweenAccounts below can look up the right table generically
+// instead of a hardcoded USDT-only branch.
+const POOL_CONFIG = {
+  [POOLED_USDT_ASSET_ID]: { table: "usdt_chain_ledger", unitsColumn: "unified_micros", chainIds: USDT_CHAIN_IDS },
+  [POOLED_ETH_ASSET_ID]: { table: "eth_chain_ledger", unitsColumn: "unified_pool_units", chainIds: ETH_CHAIN_IDS },
+};
 
 /**
  * Ensures a ledger row exists for an asset, and reconciles it against the
@@ -90,23 +102,30 @@ export async function getPooledUsdtAccountBalances() {
 }
 
 /**
- * Debits pooled unified USDT (in micros) from specific chains, largest
- * balance first, updating usdt_chain_ledger so a later unified_to_funding
- * transfer knows which real chain(s) to credit back in Funding. Used
- * internally by transferBetweenAccounts for POOLED_USDT_ASSET_ID and by
- * the trade engine when a 'buy' fill consumes USDT.
+ * Same idea as getPooledUsdtAccountBalances, for the pooled 'ETH' row —
+ * live-fetches all three ETH chain variants, sums them into pool units
+ * (see ethPool.js), and reconciles account_balances('ETH') against that.
  */
-async function debitUnifiedUsdtFromChains(db, microsToDebit) {
-  const rows = await db.getAllAsync(`SELECT * FROM usdt_chain_ledger ORDER BY unified_micros DESC`);
-  let remaining = microsToDebit;
+export async function getPooledEthAccountBalances() {
+  const { totalPoolUnits } = await fetchPooledEthBalance();
+  return getAccountBalances(POOLED_ETH_ASSET_ID, Number(totalPoolUnits));
+}
+
+/**
+ * Debits pooled unified units (in whatever pool-unit the config's table
+ * uses) from specific real chains, largest balance first, so a later
+ * unified_to_funding transfer knows which chain(s) to credit back in
+ * Funding. Generic over POOL_CONFIG rather than one copy per asset.
+ */
+async function debitUnifiedFromChains(db, poolAssetId, unitsToDebit) {
+  const { table, unitsColumn } = POOL_CONFIG[poolAssetId];
+  const rows = await db.getAllAsync(`SELECT * FROM ${table} ORDER BY ${unitsColumn} DESC`);
+  let remaining = unitsToDebit;
   for (const row of rows) {
     if (remaining <= 0) break;
-    const take = Math.min(row.unified_micros, remaining);
+    const take = Math.min(row[unitsColumn], remaining);
     if (take > 0) {
-      await db.runAsync(
-        `UPDATE usdt_chain_ledger SET unified_micros = unified_micros - ? WHERE chain_asset_id = ?`,
-        [take, row.chain_asset_id]
-      );
+      await db.runAsync(`UPDATE ${table} SET ${unitsColumn} = ${unitsColumn} - ? WHERE chain_asset_id = ?`, [take, row.chain_asset_id]);
       remaining -= take;
     }
   }
@@ -116,23 +135,16 @@ async function debitUnifiedUsdtFromChains(db, microsToDebit) {
   // "does Unified have enough" — this per-chain table is bookkeeping for
   // payout routing, not a second balance check.
   if (remaining > 0 && rows.length > 0) {
-    await db.runAsync(
-      `UPDATE usdt_chain_ledger SET unified_micros = unified_micros - ? WHERE chain_asset_id = ?`,
-      [remaining, rows[0].chain_asset_id]
-    );
+    await db.runAsync(`UPDATE ${table} SET ${unitsColumn} = ${unitsColumn} - ? WHERE chain_asset_id = ?`, [remaining, rows[0].chain_asset_id]);
   }
 }
 
-/** Credits pooled unified USDT onto a chosen chain's ledger row (defaults to the first chain). */
-async function creditUnifiedUsdtToChain(db, microsToCredit, preferredChainId = USDT_CHAIN_IDS[0]) {
-  await db.runAsync(
-    `INSERT OR IGNORE INTO usdt_chain_ledger (chain_asset_id, unified_micros) VALUES (?, 0)`,
-    [preferredChainId]
-  );
-  await db.runAsync(
-    `UPDATE usdt_chain_ledger SET unified_micros = unified_micros + ? WHERE chain_asset_id = ?`,
-    [microsToCredit, preferredChainId]
-  );
+/** Credits pooled unified units onto a chosen chain's ledger row (defaults to the pool's first chain). */
+async function creditUnifiedToChain(db, poolAssetId, unitsToCredit, preferredChainId) {
+  const { table, unitsColumn, chainIds } = POOL_CONFIG[poolAssetId];
+  const chainId = preferredChainId || chainIds[0];
+  await db.runAsync(`INSERT OR IGNORE INTO ${table} (chain_asset_id, ${unitsColumn}) VALUES (?, 0)`, [chainId]);
+  await db.runAsync(`UPDATE ${table} SET ${unitsColumn} = ${unitsColumn} + ? WHERE chain_asset_id = ?`, [unitsToCredit, chainId]);
 }
 
 /**
@@ -156,8 +168,8 @@ export async function transferBetweenAccounts(assetId, direction, amountSats) {
       `UPDATE account_balances SET funding_sats = funding_sats - ?, unified_sats = unified_sats + ? WHERE asset_id = ?`,
       [amountSats, amountSats, assetId]
     );
-    if (assetId === POOLED_USDT_ASSET_ID) {
-      await creditUnifiedUsdtToChain(db, amountSats);
+    if (POOL_CONFIG[assetId]) {
+      await creditUnifiedToChain(db, assetId, amountSats);
     }
   } else if (direction === "unified_to_funding") {
     if (row.unified_sats < amountSats) throw new Error("Insufficient Unified Trading balance.");
@@ -165,8 +177,8 @@ export async function transferBetweenAccounts(assetId, direction, amountSats) {
       `UPDATE account_balances SET unified_sats = unified_sats - ?, funding_sats = funding_sats + ? WHERE asset_id = ?`,
       [amountSats, amountSats, assetId]
     );
-    if (assetId === POOLED_USDT_ASSET_ID) {
-      await debitUnifiedUsdtFromChains(db, amountSats);
+    if (POOL_CONFIG[assetId]) {
+      await debitUnifiedFromChains(db, assetId, amountSats);
     }
   } else {
     throw new Error(`Unknown transfer direction: ${direction}`);
@@ -178,7 +190,7 @@ export async function transferBetweenAccounts(assetId, direction, amountSats) {
   );
 }
 
-export { debitUnifiedUsdtFromChains, creditUnifiedUsdtToChain };
+export { debitUnifiedFromChains, creditUnifiedToChain };
 
 export async function getTransferHistory(assetId = null, limit = 50) {
   const db = await getDb();

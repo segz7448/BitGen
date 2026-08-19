@@ -1,9 +1,10 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity, TextInput, Alert } from "react-native";
+import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity, TextInput } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 import { getDb } from "../db/database";
 import { syncTransactionHistory } from "../wallet/sync";
+import { GlassCard } from "../components/Glass";
 
 function formatSats(sats) {
   return (Math.abs(sats) / 100_000_000).toFixed(8);
@@ -21,6 +22,8 @@ function timeAgo(ts) {
 }
 
 export default function TransactionHistoryScreen({ navigation }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [txs, setTxs] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [editingTxid, setEditingTxid] = useState(null);
@@ -62,57 +65,64 @@ export default function TransactionHistoryScreen({ navigation }) {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.row}
-            onPress={() => {
-              if (item.confirmed) return;
-              if (item.direction === "out") {
-                navigation.navigate("BumpFee", { txid: item.txid });
-              } else {
-                // We didn't send this one, so we can't RBF it — CPFP is the
-                // only way to push a stuck incoming payment along.
-                navigation.navigate("Cpfp", { txid: item.txid });
-              }
-            }}
+            onPress={() => navigation.navigate("TransactionDetail", { txid: item.txid })}
           >
-            <View style={styles.iconWrap}>
-              <Text style={[styles.icon, { color: item.direction === "in" ? colors.green : colors.red }]}>
-                {item.direction === "in" ? "↓" : "↑"}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.amount}>
-                {item.direction === "in" ? "+" : "-"}{formatSats(item.amount_sats)} BTC
-              </Text>
+            <GlassCard style={styles.rowCard}>
+              <View style={styles.iconWrap}>
+                <Text style={[styles.icon, { color: item.direction === "in" ? colors.green : colors.red }]}>
+                  {item.direction === "in" ? "↓" : "↑"}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.amount}>
+                  {item.direction === "in" ? "+" : "-"}{formatSats(item.amount_sats)} BTC
+                </Text>
 
-              {editingTxid === item.txid ? (
-                <TextInput
-                  style={styles.labelInput}
-                  value={labelDraft}
-                  onChangeText={setLabelDraft}
-                  onSubmitEditing={() => saveLabel(item.txid)}
-                  onBlur={() => saveLabel(item.txid)}
-                  autoFocus
-                  placeholder="Label this address"
-                  placeholderTextColor={colors.subtext}
-                />
-              ) : (
+                {editingTxid === item.txid ? (
+                  <TextInput
+                    style={styles.labelInput}
+                    value={labelDraft}
+                    onChangeText={setLabelDraft}
+                    onSubmitEditing={() => saveLabel(item.txid)}
+                    onBlur={() => saveLabel(item.txid)}
+                    autoFocus
+                    placeholder="Label this address"
+                    placeholderTextColor={colors.subtext}
+                  />
+                ) : (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setEditingTxid(item.txid);
+                      setLabelDraft(item.counterparty_label || "");
+                    }}
+                  >
+                    <Text style={styles.meta} numberOfLines={1}>
+                      {item.counterparty_label || item.counterparty_address || item.txid.slice(0, 16) + "…"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <Text style={styles.time}>
+                  {timeAgo(item.timestamp)} · {item.confirmed ? "Confirmed" : "Pending"}
+                </Text>
+              </View>
+
+              {!item.confirmed && (
                 <TouchableOpacity
-                  onPress={(e) => {
-                    setEditingTxid(item.txid);
-                    setLabelDraft(item.counterparty_label || "");
+                  style={styles.speedUpButton}
+                  onPress={() => {
+                    if (item.direction === "out") {
+                      navigation.navigate("BumpFee", { txid: item.txid });
+                    } else {
+                      navigation.navigate("Cpfp", { txid: item.txid });
+                    }
                   }}
                 >
-                  <Text style={styles.meta} numberOfLines={1}>
-                    {item.counterparty_label || item.counterparty_address || item.txid.slice(0, 16) + "…"}
-                  </Text>
+                  <Text style={styles.speedUpText}>{item.direction === "out" ? "Bump fee" : "Speed up"}</Text>
                 </TouchableOpacity>
               )}
-
-              <Text style={styles.time}>
-                {timeAgo(item.timestamp)} · {item.confirmed ? "Confirmed" : "Pending"}
-                {!item.confirmed && item.direction === "out" ? " · Tap row to bump fee" : ""}
-                {!item.confirmed && item.direction === "in" ? " · Tap row to speed up (CPFP)" : ""}
-              </Text>
-            </View>
+            </GlassCard>
           </TouchableOpacity>
         )}
         ListEmptyComponent={<Text style={styles.empty}>No transactions yet. Pull down to sync.</Text>}
@@ -121,17 +131,19 @@ export default function TransactionHistoryScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  row: {
-    flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
-    borderRadius: 12, padding: spacing(2), marginBottom: spacing(1.5),
-  },
-  iconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center", marginRight: spacing(1.5) },
-  icon: { fontSize: 18, fontWeight: "700" },
-  amount: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  meta: { color: colors.subtext, fontSize: 11, marginTop: 2 },
-  labelInput: { color: colors.text, fontSize: 12, borderBottomWidth: 1, borderBottomColor: colors.orange, marginTop: 2, paddingVertical: 2 },
-  time: { color: colors.subtext, fontSize: 10, marginTop: 2 },
-  empty: { color: colors.subtext, textAlign: "center", marginTop: spacing(6) },
-});
+function makeStyles(colors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    row: { marginBottom: spacing(1.5) },
+    rowCard: { flexDirection: "row", alignItems: "center", padding: spacing(2) },
+    iconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center", marginRight: spacing(1.5) },
+    icon: { fontSize: 18, fontWeight: "700" },
+    amount: { color: colors.text, fontSize: 14, fontWeight: "700" },
+    meta: { color: colors.subtext, fontSize: 11, marginTop: 2 },
+    labelInput: { color: colors.text, fontSize: 12, borderBottomWidth: 1, borderBottomColor: colors.orange, marginTop: 2, paddingVertical: 2 },
+    time: { color: colors.subtext, fontSize: 10, marginTop: 2 },
+    speedUpButton: { borderWidth: 1, borderColor: colors.orange, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginLeft: spacing(1) },
+    speedUpText: { color: colors.orange, fontSize: 10, fontWeight: "700" },
+    empty: { color: colors.subtext, textAlign: "center", marginTop: spacing(6) },
+  });
+}

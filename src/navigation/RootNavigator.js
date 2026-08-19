@@ -19,6 +19,7 @@ import SendScreen from "../screens/SendScreen";
 import AddressesScreen from "../screens/AddressesScreen";
 import ScanScreen from "../screens/ScanScreen";
 import TransactionHistoryScreen from "../screens/TransactionHistoryScreen";
+import TransactionDetailScreen from "../screens/TransactionDetailScreen";
 import BumpFeeScreen from "../screens/BumpFeeScreen";
 import CpfpScreen from "../screens/CpfpScreen";
 import WatchOnlyImportScreen from "../screens/WatchOnlyImportScreen";
@@ -168,6 +169,7 @@ export default function RootNavigator() {
       <Stack.Screen name="TransferAccounts" component={TransferScreen} options={{ title: "Transfer" }} />
       <Stack.Screen name="Addresses" component={AddressesScreen} options={{ title: "Your Addresses" }} />
       <Stack.Screen name="History" component={TransactionHistoryScreen} options={{ title: "Transaction History" }} />
+      <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} options={{ title: "Transaction" }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "Notifications" }} />
       <Stack.Screen name="BumpFee" component={BumpFeeScreen} options={{ title: "Bump Fee" }} />
       <Stack.Screen name="Cpfp" component={CpfpScreen} options={{ title: "Speed Up Payment" }} />
